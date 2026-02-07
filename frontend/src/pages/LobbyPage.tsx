@@ -5,6 +5,15 @@ import { useRoom } from '../hooks/useRoom';
 import { RoomCard } from '../components/RoomCard';
 import { api } from '../api/client';
 
+function generateRoomName(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let name = '';
+  for (let i = 0; i < 6; i++) {
+    name += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return name;
+}
+
 export function LobbyPage() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
@@ -47,8 +56,9 @@ export function LobbyPage() {
   }, [room, navigate]);
 
   const handleCreate = () => {
-    if (!gameId || !roomName.trim()) return;
-    createRoom(gameId, roomName.trim(), maxPlayers, isPrivate);
+    if (!gameId) return;
+    const name = roomName.trim() || generateRoomName();
+    createRoom(gameId, name, maxPlayers, isPrivate);
     setShowCreate(false);
     setRoomName('');
   };
@@ -143,7 +153,7 @@ export function LobbyPage() {
                 type="text"
                 value={roomName}
                 onChange={(e) => setRoomName(e.target.value)}
-                placeholder="Dat ten cho phong..."
+                placeholder="De trong de tao ten tu dong..."
                 style={{
                   width: '100%',
                   padding: '8px 12px',
@@ -187,7 +197,6 @@ export function LobbyPage() {
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={handleCreate}
-                disabled={!roomName.trim()}
                 style={{
                   padding: '8px 20px',
                   background: '#4ecdc4',
