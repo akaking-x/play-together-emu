@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEmulator } from '../hooks/useEmulator';
 import type { EmulatorCore } from '../emulator/core';
+import { DinoRunner } from './DinoRunner';
 
 interface Props {
   romUrl: string;
@@ -99,16 +100,18 @@ export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef }: Props) {
             position: 'absolute',
             inset: 0,
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0,0,0,0.8)',
+            background: '#000',
             borderRadius: 8,
-            color: '#fff',
-            fontSize: 18,
-            pointerEvents: 'none',
+            gap: 12,
           }}
         >
-          Dang tai game...
+          <DinoRunner />
+          <p style={{ color: '#888', fontSize: 12, margin: 0 }}>
+            Dang tai game... Game se tu dong bat dau khi san sang.
+          </p>
         </div>
       )}
 

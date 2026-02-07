@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { useGameStore } from '../stores/gameStore';
 import { useRoom } from '../hooks/useRoom';
 import { PlayerSlot } from '../components/PlayerSlot';
 import { ChatBox } from '../components/ChatBox';
+import { prefetchROM } from '../utils/prefetch';
 
 export function RoomPage() {
   useParams(); // keep route param matching active
@@ -24,6 +26,15 @@ export function RoomPage() {
     startGame,
     sendChat,
   } = useRoom();
+
+  // Prefetch ROM in background while waiting in room
+  const games = useGameStore((s) => s.games);
+  useEffect(() => {
+    if (room?.gameId) {
+      const game = games.find((g) => g._id === room.gameId);
+      prefetchROM(room.gameId, game?.title);
+    }
+  }, [room?.gameId, games]);
 
   // Navigate to game when game starts
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
+import { CacheManager } from '../../components/CacheManager';
 
 interface Stats {
   totalUsers: number;
@@ -51,6 +52,10 @@ export function Dashboard() {
           <h3>Quan ly game</h3>
           <p>Upload ROM, chinh sua thong tin game</p>
         </Link>
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <CacheManager />
       </div>
     </div>
   );

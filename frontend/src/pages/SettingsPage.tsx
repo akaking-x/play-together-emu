@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { KeyMapper } from '../components/KeyMapper';
+import { CacheManager } from '../components/CacheManager';
 import { DEFAULT_KEYMAP } from '../emulator/input-mapper';
 import { api } from '../api/client';
 
@@ -270,6 +271,10 @@ export function SettingsPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div style={{ borderTop: '1px solid #333', marginTop: 32, paddingTop: 24 }}>
+        <CacheManager />
       </div>
     </div>
   );

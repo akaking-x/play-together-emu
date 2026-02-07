@@ -26,6 +26,7 @@ gamesRoutes.get('/bios/:filename', (req, res) => {
   }
 
   res.set('Content-Type', 'application/octet-stream');
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
   const stream = createReadStream(biosPath);
   stream.on('error', () => {
     res.status(500).json({ error: 'Failed to read BIOS file' });
@@ -63,7 +64,7 @@ gamesRoutes.get('/:id/rom', async (req, res) => {
     }
 
     res.set('Content-Type', 'application/octet-stream');
-    res.set('Content-Disposition', `attachment; filename="${game.romFilename}"`);
+    res.set('Cache-Control', 'public, max-age=86400');
     if (game.romSizeBytes) {
       res.set('Content-Length', String(game.romSizeBytes));
     }
