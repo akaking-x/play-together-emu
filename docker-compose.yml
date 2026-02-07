@@ -1,0 +1,56 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: psx-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - psx-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: psx-backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/ps1web
+    volumes:
+      - storage_data:/app/storage
+    depends_on:
+      - mongodb
+    networks:
+      - psx-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: psx-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - psx-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: psx-tunnel
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    networks:
+      - psx-net
+
+volumes:
+  mongo_data:
+  storage_data:
+
+networks:
+  psx-net:
+    driver: bridge

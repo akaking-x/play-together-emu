@@ -72,168 +72,127 @@ npm run dev             # http://localhost:5173
 
 Default admin account (created on first run): `admin` / `admin123456`
 
-## Deploy to VPS
+## Deploy with Docker Compose + Cloudflare Tunnel
+
+### Architecture
+
+```
+Internet → Cloudflare Tunnel → frontend (nginx:80)
+                                  ├── static files (React SPA)
+                                  ├── /api/* → backend:3000
+                                  └── /ws   → backend:3000 (WebSocket)
+                               backend (Node.js:3000)
+                                  └── mongodb:27017
+```
+
+4 containers: `frontend` (nginx), `backend` (Node.js), `mongodb`, `cloudflared` (tunnel)
 
 ### Prerequisites
 
-- Ubuntu 20.04+ VPS with root/sudo access
-- Domain name pointing to your VPS IP (optional but recommended for HTTPS)
+- VPS with Docker + Docker Compose installed
+- Cloudflare Tunnel token for your domain
 
-### 1. Install dependencies
+### 1. Install Docker (if not installed)
 
 ```bash
-# Node.js 20
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
-
-# MongoDB 7
-curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
-echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-sudo apt update && sudo apt install -y mongodb-org
-sudo systemctl enable --now mongod
-
-# Nginx
-sudo apt install -y nginx
-
-# PM2 (process manager)
-sudo npm install -g pm2
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Log out and back in, then verify:
+docker --version && docker compose version
 ```
 
-### 2. Clone and build
+### 2. Clone project
 
 ```bash
 cd /opt
-sudo git clone https://github.com/akaking-x/play-together-emu.git
-sudo chown -R $USER:$USER play-together-emu
+git clone https://github.com/akaking-x/play-together-emu.git
 cd play-together-emu
-
-# Backend
-cd backend
-cp .env.example .env
-nano .env               # Set production values (see below)
-npm ci
-npm run build
-
-# Frontend
-cd ../frontend
-npm ci
-npm run build           # Output in frontend/dist/
 ```
 
-### 3. Configure .env (production)
+### 3. Configure backend .env
+
+```bash
+cp backend/.env.example backend/.env
+nano backend/.env
+```
+
+Set production values:
 
 ```env
 PORT=3000
 NODE_ENV=production
-MONGO_URI=mongodb://localhost:27017/ps1web
+MONGO_URI=mongodb://mongodb:27017/ps1web
 JWT_SECRET=your-secure-random-string-at-least-32-chars
 JWT_EXPIRES_IN=7d
 STORAGE_TYPE=local
-STORAGE_LOCAL_PATH=/opt/play-together-emu/storage
+STORAGE_LOCAL_PATH=/app/storage
 STUN_URL=stun:stun.l.google.com:19302
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-this-strong-password
 ```
 
-### 4. Start backend with PM2
+> **Note:** `MONGO_URI` uses `mongodb` (container name), not `localhost`.
+
+### 4. Set Cloudflare Tunnel token
 
 ```bash
-cd /opt/play-together-emu/backend
-mkdir -p /opt/play-together-emu/storage
-pm2 start dist/index.js --name ps1-backend
-pm2 save
-pm2 startup   # Follow the printed command to enable on boot
+# Create .env file at project root for docker-compose
+echo "CLOUDFLARE_TUNNEL_TOKEN=your-tunnel-token-here" > .env
 ```
 
-### 5. Nginx config
+### 5. Configure Cloudflare Tunnel
+
+In the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/):
+
+1. Go to **Networks > Tunnels**
+2. Create or edit your tunnel
+3. Add a **Public Hostname**:
+   - Subdomain: `play-psx`
+   - Domain: `tuanbui.click`
+   - Service: `http://frontend:80`
+4. Under **Additional settings**:
+   - Enable **WebSockets**
+   - Set **HTTP Host Header**: `play-psx.tuanbui.click`
+
+### 6. Build and start
 
 ```bash
-sudo nano /etc/nginx/sites-available/ps1
+docker compose up -d --build
 ```
 
-Paste (replace `your-domain.com` with your domain or server IP):
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # Required for SharedArrayBuffer (WASM emulator)
-    add_header Cross-Origin-Opener-Policy "same-origin" always;
-    add_header Cross-Origin-Embedder-Policy "require-corp" always;
-
-    # Frontend static files
-    root /opt/play-together-emu/frontend/dist;
-    index index.html;
-
-    # SPA fallback
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API proxy
-    location /api/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 700M;  # For ROM uploads
-    }
-
-    # WebSocket proxy
-    location /ws {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_read_timeout 86400s;
-    }
-}
-```
-
-Enable and restart:
+Verify all 4 containers are running:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/ps1 /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl restart nginx
+docker compose ps
 ```
 
-### 6. HTTPS with Let's Encrypt (optional but recommended)
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
-```
-
-### 7. Firewall
-
-```bash
-sudo ufw allow 22
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw enable
-```
+Site live at: **https://play-psx.tuanbui.click**
 
 ### Quick Commands
 
 ```bash
 # View logs
-pm2 logs ps1-backend
+docker compose logs -f backend        # Backend logs
+docker compose logs -f frontend       # Nginx logs
+docker compose logs -f cloudflared    # Tunnel logs
 
 # Restart after code update
 cd /opt/play-together-emu
-git pull
-cd backend && npm ci && npm run build && pm2 restart ps1-backend
-cd ../frontend && npm ci && npm run build
-# Nginx auto-serves new frontend/dist
+git pull origin main
+docker compose up -d --build
 
-# Monitor
-pm2 monit
+# Stop everything
+docker compose down
+
+# Stop and remove all data (MongoDB + storage)
+docker compose down -v
+
+# Rebuild single container
+docker compose build backend && docker compose up -d backend
+
+# Shell into container
+docker compose exec backend sh
+docker compose exec mongodb mongosh ps1web
 ```
 
 ## How to Play
