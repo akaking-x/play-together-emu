@@ -93,6 +93,7 @@ export class PeerConnection {
   }
 
   private handlePing(data: ArrayBuffer): void {
+    if (data.byteLength < 9) return; // need 1 marker + 8 float64
     const v = new DataView(data);
     if (v.getUint8(0) === 0xFF) {
       // Ping received -> respond with pong
