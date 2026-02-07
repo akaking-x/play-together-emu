@@ -11,6 +11,7 @@ import { useNetplay } from '../hooks/useNetplay';
 import { useGameLoop } from '../hooks/useGameLoop';
 import { useRoomStore } from '../stores/roomStore';
 import { useAuthStore } from '../stores/authStore';
+import { useRoom } from '../hooks/useRoom';
 import { applyCheats, removeCheats, getPlayerNumber } from '../emulator/split-screen';
 import { api } from '../api/client';
 import type { Game } from '../stores/gameStore';
@@ -30,6 +31,7 @@ export function GamePage() {
 
   // Multiplayer state from stores
   const { room, client, gameStarting } = useRoomStore();
+  const { leaveRoom } = useRoom();
   const user = useAuthStore((s) => s.user);
   const localUserId = user?.id ?? '';
 
@@ -57,6 +59,13 @@ export function GamePage() {
     setOnData,
     active: isMultiplayer,
   });
+
+  // Leave room on unmount (safety net)
+  useEffect(() => {
+    return () => {
+      leaveRoom();
+    };
+  }, [leaveRoom]);
 
   // Fetch game info and ROM URL
   useEffect(() => {
@@ -237,7 +246,7 @@ export function GamePage() {
             Phim tat
           </button>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => { leaveRoom(); navigate('/'); }}
             style={{
               padding: '6px 14px',
               background: '#aa3333',
