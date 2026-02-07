@@ -22,7 +22,9 @@ export interface SignalingCallbacks {
   onSignal?: (fromId: string, sdp: RTCSessionDescriptionInit) => void;
   onICE?: (fromId: string, candidate: RTCIceCandidateInit) => void;
   onChat?: (fromId: string, displayName: string, message: string, timestamp: number) => void;
-  onPlayerDisconnected?: (userId: string) => void;
+  onPlayerDisconnected?: (userId: string, temporary?: boolean) => void;
+  onPlayerReconnected?: (userId: string, displayName: string) => void;
+  onReconnectState?: (stateData: string) => void;
   onError?: (code: string, message: string) => void;
   onOpen?: () => void;
   onClose?: () => void;
@@ -108,7 +110,13 @@ export class SignalingClient {
         );
         break;
       case 'player-disconnected':
-        this.callbacks.onPlayerDisconnected?.(msg.userId as string);
+        this.callbacks.onPlayerDisconnected?.(msg.userId as string, msg.temporary as boolean | undefined);
+        break;
+      case 'player-reconnected':
+        this.callbacks.onPlayerReconnected?.(msg.userId as string, msg.displayName as string);
+        break;
+      case 'reconnect-state':
+        this.callbacks.onReconnectState?.(msg.stateData as string);
         break;
       case 'error':
         this.callbacks.onError?.(msg.code as string, msg.message as string);
@@ -183,6 +191,14 @@ export class SignalingClient {
 
   sendChat(message: string): void {
     this.send({ type: 'chat', message });
+  }
+
+  rejoinRoom(roomId: string): void {
+    this.send({ type: 'rejoin-room', roomId });
+  }
+
+  sendRoomSaveState(stateData: string): void {
+    this.send({ type: 'room-save-state', stateData });
   }
 
   get connected(): boolean {

@@ -10,11 +10,14 @@ interface RoomState {
   messages: ChatMessage[];
   error: string | null;
   gameStarting: boolean;
+  peerDisconnected: boolean;
+  reconnectState: string | null;
 
   connect: (token: string) => void;
   disconnect: () => void;
   clearRoom: () => void;
   clearError: () => void;
+  clearReconnectState: () => void;
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -25,6 +28,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   messages: [],
   error: null,
   gameStarting: false,
+  peerDisconnected: false,
+  reconnectState: null,
 
   connect: (token: string) => {
     const existing = get().client;
@@ -34,7 +39,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     existing?.disconnect();
 
     const client = new SignalingClient({
-      onOpen: () => set({ connected: true }),
+      onOpen: () => {
+        set({ connected: true });
+        // Auto-rejoin room if was in a game
+        const state = get();
+        if (state.gameStarting && state.room) {
+          client.rejoinRoom(state.room.id);
+        }
+      },
       onClose: () => set({ connected: false }),
       onRoomUpdated: (r) => set({ room: r }),
       onRoomList: (r) => set({ rooms: r }),
@@ -44,8 +56,17 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           messages: [...s.messages, { fromId, displayName, message, timestamp }],
         }));
       },
-      onPlayerDisconnected: () => {
+      onPlayerDisconnected: (_userId, temporary) => {
+        if (temporary) {
+          set({ peerDisconnected: true });
+        }
         // room-updated will follow
+      },
+      onPlayerReconnected: () => {
+        set({ peerDisconnected: false });
+      },
+      onReconnectState: (stateData) => {
+        set({ reconnectState: stateData });
       },
       onError: (_code, msg) => {
         set({ error: msg });
@@ -67,10 +88,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       messages: [],
       error: null,
       gameStarting: false,
+      peerDisconnected: false,
+      reconnectState: null,
     });
   },
 
-  clearRoom: () => set({ room: null, messages: [], gameStarting: false }),
+  clearRoom: () => set({ room: null, messages: [], gameStarting: false, peerDisconnected: false, reconnectState: null }),
 
   clearError: () => set({ error: null }),
+
+  clearReconnectState: () => set({ reconnectState: null }),
 }));

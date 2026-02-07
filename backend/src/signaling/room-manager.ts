@@ -32,8 +32,15 @@ function randomCode(length: number): string {
   return Array.from(bytes, b => chars[b % chars.length]).join('');
 }
 
+export interface DisconnectedPlayer {
+  player: LivePlayer;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class RoomManager {
   private rooms = new Map<string, LiveRoom>();
+  private disconnectedPlayers = new Map<string, Map<string, DisconnectedPlayer>>();
+  private reconnectStates = new Map<string, string>(); // roomId → base64 save state
 
   create(opts: {
     hostId: string;
@@ -106,6 +113,77 @@ export class RoomManager {
   }
 
   delete(roomId: string) {
+    // Clean up disconnected players and timers
+    const disc = this.disconnectedPlayers.get(roomId);
+    if (disc) {
+      for (const entry of disc.values()) {
+        clearTimeout(entry.timer);
+      }
+      this.disconnectedPlayers.delete(roomId);
+    }
+    this.reconnectStates.delete(roomId);
     this.rooms.delete(roomId);
+  }
+
+  reservePlayer(roomId: string, userId: string, timer: ReturnType<typeof setTimeout>): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const player = room.players.find(p => p.userId === userId);
+    if (!player) return;
+    // Remove from active players
+    room.players = room.players.filter(p => p.userId !== userId);
+    // Store in disconnected map
+    if (!this.disconnectedPlayers.has(roomId)) {
+      this.disconnectedPlayers.set(roomId, new Map());
+    }
+    this.disconnectedPlayers.get(roomId)!.set(userId, { player, timer });
+  }
+
+  restorePlayer(roomId: string, userId: string): LivePlayer | null {
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+    const disc = this.disconnectedPlayers.get(roomId);
+    if (!disc) return null;
+    const entry = disc.get(userId);
+    if (!entry) return null;
+    clearTimeout(entry.timer);
+    disc.delete(userId);
+    if (disc.size === 0) this.disconnectedPlayers.delete(roomId);
+    // Add back to room
+    room.players.push(entry.player);
+    return entry.player;
+  }
+
+  isReserved(roomId: string, userId: string): boolean {
+    return this.disconnectedPlayers.get(roomId)?.has(userId) ?? false;
+  }
+
+  clearReservation(roomId: string, userId: string): void {
+    const disc = this.disconnectedPlayers.get(roomId);
+    if (!disc) return;
+    const entry = disc.get(userId);
+    if (entry) {
+      clearTimeout(entry.timer);
+      disc.delete(userId);
+    }
+    if (disc.size === 0) this.disconnectedPlayers.delete(roomId);
+  }
+
+  hasActivePlayers(roomId: string): boolean {
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+    return room.players.length > 0 || (this.disconnectedPlayers.get(roomId)?.size ?? 0) > 0;
+  }
+
+  setReconnectState(roomId: string, state: string): void {
+    this.reconnectStates.set(roomId, state);
+  }
+
+  getReconnectState(roomId: string): string | null {
+    return this.reconnectStates.get(roomId) ?? null;
+  }
+
+  clearReconnectState(roomId: string): void {
+    this.reconnectStates.delete(roomId);
   }
 }

@@ -51,8 +51,19 @@ export class SignalingServer {
     });
 
     ws.on('close', () => {
-      if (conn.roomId) this.leaveRoom(conn);
-      this.connections.delete(user.id);
+      if (conn.roomId) {
+        const room = this.rooms.get(conn.roomId);
+        // During 'playing', reserve slot instead of permanent leave
+        if (room && room.status === 'playing') {
+          this.disconnectFromRoom(conn);
+        } else {
+          this.leaveRoom(conn);
+        }
+      }
+      // Only remove from connections if this is still the current connection
+      if (this.connections.get(user.id) === conn) {
+        this.connections.delete(user.id);
+      }
     });
   }
 
@@ -112,8 +123,55 @@ export class SignalingServer {
       }
 
       case 'leave-room':
+        // Intentional leave — permanent removal, no reservation
         this.leaveRoom(conn);
         break;
+
+      case 'rejoin-room': {
+        const room = this.rooms.get(msg.roomId);
+        if (!room) {
+          this.send(conn.ws, { type: 'error', code: 'NOT_FOUND', message: 'Room not found' });
+          return;
+        }
+        if (room.status !== 'playing') {
+          this.send(conn.ws, { type: 'error', code: 'NOT_PLAYING', message: 'Room is not in playing state' });
+          return;
+        }
+        if (!this.rooms.isReserved(room.id, conn.user.id)) {
+          this.send(conn.ws, { type: 'error', code: 'NO_RESERVATION', message: 'No reservation found' });
+          return;
+        }
+        // Restore player from reservation
+        const restored = this.rooms.restorePlayer(room.id, conn.user.id);
+        if (!restored) {
+          this.send(conn.ws, { type: 'error', code: 'RESTORE_FAILED', message: 'Failed to restore player' });
+          return;
+        }
+        conn.roomId = room.id;
+        // Notify remaining players
+        this.broadcastToRoom(room.id, {
+          type: 'player-reconnected',
+          userId: conn.user.id,
+          displayName: conn.user.displayName,
+        });
+        // Send reconnect state to rejoining player if available
+        const reconnectState = this.rooms.getReconnectState(room.id);
+        if (reconnectState) {
+          this.send(conn.ws, { type: 'reconnect-state', stateData: reconnectState });
+          this.rooms.clearReconnectState(room.id);
+        }
+        // Broadcast updated room
+        this.broadcastRoom(room.id);
+        break;
+      }
+
+      case 'room-save-state': {
+        if (!conn.roomId) return;
+        const room = this.rooms.get(conn.roomId);
+        if (!room || room.status !== 'playing') return;
+        this.rooms.setReconnectState(conn.roomId, msg.stateData);
+        break;
+      }
 
       case 'ready':
         if (conn.roomId) {
@@ -168,6 +226,50 @@ export class SignalingServer {
         break;
       }
     }
+  }
+
+  private disconnectFromRoom(conn: ConnectedUser) {
+    if (!conn.roomId) return;
+    const roomId = conn.roomId;
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+
+    const RESERVATION_TIMEOUT = 60_000; // 60 seconds
+
+    const timer = setTimeout(() => {
+      // Reservation expired — permanent removal
+      this.rooms.clearReservation(roomId, conn.user.id);
+      // If host timed out, transfer host
+      if (room.hostId === conn.user.id && room.players.length > 0) {
+        room.hostId = room.players[0].userId;
+      }
+      // Broadcast permanent leave
+      this.broadcastToRoom(roomId, {
+        type: 'player-disconnected',
+        userId: conn.user.id,
+        temporary: false,
+        displayName: conn.user.displayName,
+      });
+      // Delete room if no active players and no reservations
+      if (!this.rooms.hasActivePlayers(roomId)) {
+        this.rooms.delete(roomId);
+      } else {
+        this.broadcastRoom(roomId);
+      }
+    }, RESERVATION_TIMEOUT);
+
+    // Reserve the slot (removes from room.players, stores with timer)
+    this.rooms.reservePlayer(roomId, conn.user.id, timer);
+    conn.roomId = null;
+
+    // Notify remaining players of temporary disconnect
+    this.broadcastToRoom(roomId, {
+      type: 'player-disconnected',
+      userId: conn.user.id,
+      temporary: true,
+      displayName: conn.user.displayName,
+    });
+    this.broadcastRoom(roomId);
   }
 
   private leaveRoom(conn: ConnectedUser) {

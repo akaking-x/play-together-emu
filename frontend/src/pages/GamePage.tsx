@@ -31,9 +31,13 @@ export function GamePage() {
 
   // Multiplayer state from stores
   const { room, client, gameStarting } = useRoomStore();
+  const peerDisconnected = useRoomStore((s) => s.peerDisconnected);
+  const reconnectState = useRoomStore((s) => s.reconnectState);
+  const clearReconnectState = useRoomStore((s) => s.clearReconnectState);
   const { leaveRoom } = useRoom();
   const user = useAuthStore((s) => s.user);
   const localUserId = user?.id ?? '';
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   const isMultiplayer = !!(room && room.players.length > 1 && gameStarting);
 
@@ -66,6 +70,47 @@ export function GamePage() {
       leaveRoom();
     };
   }, [leaveRoom]);
+
+  // On peer disconnect: pause emulator + save state + send to server
+  useEffect(() => {
+    if (!peerDisconnected || !emulatorInstance || !isMultiplayer) return;
+    emulatorInstance.pause();
+    const stateData = emulatorInstance.saveState();
+    if (stateData && client) {
+      const binary = Array.from(stateData, (b) => String.fromCharCode(b)).join('');
+      const base64 = btoa(binary);
+      client.sendRoomSaveState(base64);
+    }
+  }, [peerDisconnected, emulatorInstance, isMultiplayer, client]);
+
+  // On peer reconnect: 3-second countdown then resume
+  useEffect(() => {
+    if (peerDisconnected || !emulatorInstance || !isMultiplayer) return;
+    if (emulatorInstance.getState() !== 'paused') return;
+    // Start countdown
+    setCountdown(3);
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          emulatorInstance.resume();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [peerDisconnected, emulatorInstance, isMultiplayer]);
+
+  // On receiving reconnect state (I am the rejoining player): load state
+  useEffect(() => {
+    if (!reconnectState || !emulatorInstance) return;
+    const binary = atob(reconnectState);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    emulatorInstance.loadState(bytes);
+    clearReconnectState();
+  }, [reconnectState, emulatorInstance, clearReconnectState]);
 
   // Fetch game info and ROM URL
   useEffect(() => {
@@ -262,13 +307,43 @@ export function GamePage() {
       </div>
 
       <div style={{ display: 'flex', gap: 20 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           <GameCanvas
             romUrl={romUrl}
             biosUrl="/api/games/bios/scph5501.bin"
             onReady={handleEmulatorReady}
             onEmulatorRef={handleEmulatorRef}
           />
+          {isMultiplayer && peerDisconnected && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.7)', zIndex: 60,
+              flexDirection: 'column', gap: 12,
+            }}>
+              <div style={{ color: '#ffa500', fontSize: 20 }}>
+                Nguoi choi da mat ket noi
+              </div>
+              <div style={{ color: '#888', fontSize: 14 }}>
+                Dang doi ket noi lai... (toi da 60 giay)
+              </div>
+            </div>
+          )}
+          {isMultiplayer && countdown !== null && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.6)', zIndex: 60,
+              flexDirection: 'column', gap: 12,
+            }}>
+              <div style={{ color: '#4a9eff', fontSize: 48, fontWeight: 'bold' }}>
+                {countdown}
+              </div>
+              <div style={{ color: '#ccc', fontSize: 16 }}>
+                Chuan bi tiep tuc...
+              </div>
+            </div>
+          )}
         </div>
 
         {showSaves && (
