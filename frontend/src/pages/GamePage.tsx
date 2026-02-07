@@ -57,11 +57,12 @@ export function GamePage() {
   clientRef.current = client;
 
   // WebRTC peer connections
-  const { peerInfos, sendToAll, setOnData, addStreamToAll } = useNetplay({
+  const { peerInfos, sendToAll, setOnData, replaceTrackOnAll } = useNetplay({
     signalingClient: clientRef,
     localUserId,
     players: room?.players ?? [],
     active: isMultiplayer,
+    isHost,
     onTrack: (stream) => setRemoteStream(stream),
   });
 
@@ -91,38 +92,48 @@ export function GamePage() {
     if (!canvas) return;
     streamCapturedRef.current = true;
     const stream = canvas.captureStream(60);
-    addStreamToAll(stream);
-  }, [isHost, isMultiplayer, gameSynced, emulatorInstance, addStreamToAll]);
+    replaceTrackOnAll(stream);
+  }, [isHost, isMultiplayer, gameSynced, emulatorInstance, replaceTrackOnAll]);
 
-  // On peer disconnect: pause emulator + save state + send to server (host only)
+  // Track if we were previously disconnected (for reconnect countdown)
+  const wasPeerDisconnectedRef = useRef(false);
   useEffect(() => {
-    if (!peerDisconnected || !emulatorInstance || !isMultiplayer || !isHost) return;
-    emulatorInstance.pause();
-    const stateData = emulatorInstance.saveState();
-    if (stateData && client) {
-      const binary = Array.from(stateData, (b) => String.fromCharCode(b)).join('');
-      const base64 = btoa(binary);
-      client.sendRoomSaveState(base64);
+    if (peerDisconnected) wasPeerDisconnectedRef.current = true;
+  }, [peerDisconnected]);
+
+  // On peer disconnect: host pauses emulator + saves state
+  useEffect(() => {
+    if (!peerDisconnected || !isMultiplayer) return;
+    if (isHost && emulatorInstance) {
+      emulatorInstance.pause();
+      const stateData = emulatorInstance.saveState();
+      if (stateData && client) {
+        const binary = Array.from(stateData, (b) => String.fromCharCode(b)).join('');
+        const base64 = btoa(binary);
+        client.sendRoomSaveState(base64);
+      }
     }
   }, [peerDisconnected, emulatorInstance, isMultiplayer, isHost, client]);
 
-  // On peer reconnect: 3-second countdown then resume (host only)
+  // On peer reconnect: 3-second countdown then resume (both host and guest see countdown)
   useEffect(() => {
-    if (peerDisconnected || !emulatorInstance || !isMultiplayer || !isHost) return;
-    if (emulatorInstance.getState() !== 'paused') return;
+    if (peerDisconnected || !isMultiplayer || !wasPeerDisconnectedRef.current) return;
+    wasPeerDisconnectedRef.current = false;
     setCountdown(3);
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev === null || prev <= 1) {
           clearInterval(interval);
-          emulatorInstance.resume();
+          if (isHost && emulatorInstance) {
+            emulatorInstance.resume();
+          }
           return null;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [peerDisconnected, emulatorInstance, isMultiplayer, isHost]);
+  }, [peerDisconnected, isMultiplayer, isHost, emulatorInstance]);
 
   // On receiving reconnect state (host only): load state
   useEffect(() => {
@@ -429,7 +440,7 @@ export function GamePage() {
               </div>
             </div>
           )}
-          {isMultiplayer && isHost && peerDisconnected && (
+          {isMultiplayer && peerDisconnected && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex',
               alignItems: 'center', justifyContent: 'center',
@@ -440,7 +451,7 @@ export function GamePage() {
                 Nguoi choi da mat ket noi
               </div>
               <div style={{ color: '#888', fontSize: 14 }}>
-                Dang doi ket noi lai... (toi da 60 giay)
+                {isHost ? 'Game da tam dung. Doi ket noi lai... (toi da 60 giay)' : 'Game da tam dung. Doi nguoi choi ket noi lai...'}
               </div>
             </div>
           )}

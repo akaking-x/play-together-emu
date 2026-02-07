@@ -5,7 +5,6 @@ export interface PeerCallbacks {
   onData: (data: ArrayBuffer) => void;
   onLatency: (ms: number) => void;
   onTrack?: (stream: MediaStream) => void;
-  onNegotiationNeeded?: (desc: RTCSessionDescription) => void;
 }
 
 export class PeerConnection {
@@ -32,15 +31,6 @@ export class PeerConnection {
     // Handle incoming video tracks from remote peer
     this.pc.ontrack = (e) => {
       if (e.streams[0]) this.callbacks.onTrack?.(e.streams[0]);
-    };
-
-    // Handle renegotiation (triggered when host adds video track after initial connection)
-    this.pc.onnegotiationneeded = async () => {
-      const offer = await this.pc.createOffer();
-      await this.pc.setLocalDescription(offer);
-      if (this.pc.localDescription) {
-        this.callbacks.onNegotiationNeeded?.(this.pc.localDescription);
-      }
     };
   }
 
@@ -135,9 +125,18 @@ export class PeerConnection {
     this.callbacks.onState(s);
   }
 
-  addStream(stream: MediaStream): void {
-    for (const track of stream.getTracks()) {
-      this.pc.addTrack(track, stream);
+  /** Call before createOffer() so the video m-line is in the initial SDP */
+  setupSendVideo(): void {
+    this.pc.addTransceiver('video', { direction: 'sendonly' });
+  }
+
+  /** Replace the placeholder video track with the real canvas stream track */
+  replaceVideoTrack(stream: MediaStream): void {
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack) return;
+    const sender = this.pc.getSenders().find(s => !s.track || s.track.kind === 'video');
+    if (sender) {
+      sender.replaceTrack(videoTrack);
     }
   }
 

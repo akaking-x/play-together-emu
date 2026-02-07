@@ -8,6 +8,7 @@ interface UseNetplayOptions {
   localUserId: string;
   players: Array<{ userId: string; displayName: string }>;
   active: boolean; // true when game is starting
+  isHost: boolean;
   onTrack?: (stream: MediaStream) => void;
 }
 
@@ -15,7 +16,7 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ];
 
-export function useNetplay({ signalingClient, localUserId, players, active, onTrack }: UseNetplayOptions) {
+export function useNetplay({ signalingClient, localUserId, players, active, isHost, onTrack }: UseNetplayOptions) {
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const [peerInfos, setPeerInfos] = useState<PeerInfo[]>([]);
   const onDataRef = useRef<((peerId: string, data: ArrayBuffer) => void) | null>(null);
@@ -55,7 +56,6 @@ export function useNetplay({ signalingClient, localUserId, players, active, onTr
           onData: (data) => onDataRef.current?.(rp.userId, data),
           onLatency: (ms) => updatePeerInfo(rp.userId, peer.state, ms, rp.displayName),
           onTrack: (stream) => onTrackRef.current?.(stream),
-          onNegotiationNeeded: (desc) => client.sendSignal(rp.userId, desc),
         },
       );
 
@@ -65,8 +65,9 @@ export function useNetplay({ signalingClient, localUserId, players, active, onTr
 
       peersRef.current.set(rp.userId, peer);
 
-      // Deterministic: lower userId initiates offer
-      if (localUserId < rp.userId) {
+      // Host always initiates the offer (with video transceiver so m-line is stable)
+      if (isHost) {
+        peer.setupSendVideo();
         peer.createOffer().then((offer) => {
           client.sendSignal(rp.userId, offer);
         });
@@ -86,9 +87,9 @@ export function useNetplay({ signalingClient, localUserId, players, active, onTr
             onData: (data) => onDataRef.current?.(fromId, data),
             onLatency: (ms) => updatePeerInfo(fromId, peer!.state, ms, rp?.displayName ?? fromId),
             onTrack: (stream) => onTrackRef.current?.(stream),
-            onNegotiationNeeded: (desc) => client.sendSignal(fromId, desc),
           },
         );
+        if (isHost) peer.setupSendVideo();
         peer.onICE((candidate) => {
           client.sendICE(fromId, candidate.toJSON());
         });
@@ -122,7 +123,7 @@ export function useNetplay({ signalingClient, localUserId, players, active, onTr
       client.setCallback('onSignal', originalOnSignal);
       client.setCallback('onICE', originalOnICE);
     };
-  }, [active, localUserId, players, signalingClient, updatePeerInfo]);
+  }, [active, localUserId, players, signalingClient, updatePeerInfo, isHost]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -149,9 +150,9 @@ export function useNetplay({ signalingClient, localUserId, players, active, onTr
     onDataRef.current = cb;
   }, []);
 
-  const addStreamToAll = useCallback((stream: MediaStream) => {
+  const replaceTrackOnAll = useCallback((stream: MediaStream) => {
     for (const peer of peersRef.current.values()) {
-      peer.addStream(stream);
+      peer.replaceVideoTrack(stream);
     }
   }, []);
 
@@ -160,7 +161,7 @@ export function useNetplay({ signalingClient, localUserId, players, active, onTr
     sendToAll,
     sendToPeer,
     setOnData,
-    addStreamToAll,
+    replaceTrackOnAll,
     peers: peersRef,
   };
 }
