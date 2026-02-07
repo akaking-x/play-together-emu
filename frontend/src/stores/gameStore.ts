@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client';
+import type { SplitScreenCheats } from '../types/split-screen';
 
 export interface Game {
   _id: string;
@@ -13,6 +14,7 @@ export interface Game {
   minPlayers: number;
   maxPlayers: number;
   hasSplitScreen: boolean;
+  splitScreenCheats: SplitScreenCheats | null;
   coverPath: string;
   description: string;
   isActive: boolean;

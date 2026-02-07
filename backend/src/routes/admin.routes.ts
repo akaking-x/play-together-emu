@@ -9,6 +9,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { config } from '../config.js';
 import { storageService } from '../services/storage.service.js';
+import { parseCheatsFile } from '../services/split-screen.service.js';
 
 export const adminRoutes = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -149,6 +150,79 @@ adminRoutes.delete('/games/:id', async (req, res) => {
     await game.deleteOne();
   }
   res.json({ success: true });
+});
+
+// === CHEATS MANAGEMENT ===
+
+const cheatsUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 1024 * 1024 }, // 1MB max
+  fileFilter: (_req, file, cb) => {
+    if (file.originalname.endsWith('.json') || file.mimetype === 'application/json') {
+      cb(null, true);
+    } else {
+      cb(new Error('Chi chap nhan file .json'));
+    }
+  },
+});
+
+adminRoutes.post('/games/:id/upload-cheats', cheatsUpload.single('cheatsFile'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'File cheats (.json) required' });
+    return;
+  }
+
+  try {
+    const game = await Game.findById(req.params.id);
+    if (!game) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const json = JSON.parse(req.file.buffer.toString('utf-8'));
+    const { config: cheatsConfig, warnings } = parseCheatsFile(json);
+
+    game.splitScreenCheats = cheatsConfig;
+    await game.save();
+
+    res.json({
+      success: true,
+      filename: req.file.originalname,
+      splitScreenCheats: cheatsConfig,
+      warnings,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Loi parse file cheats';
+    res.status(400).json({ error: msg });
+  }
+});
+
+adminRoutes.get('/games/:id/cheats', async (req, res) => {
+  try {
+    const game = await Game.findById(req.params.id);
+    if (!game) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+    res.json({ splitScreenCheats: game.splitScreenCheats });
+  } catch {
+    res.status(400).json({ error: 'Invalid game ID' });
+  }
+});
+
+adminRoutes.delete('/games/:id/cheats', async (req, res) => {
+  try {
+    const game = await Game.findById(req.params.id);
+    if (!game) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+    game.splitScreenCheats = null;
+    await game.save();
+    res.json({ success: true });
+  } catch {
+    res.status(400).json({ error: 'Invalid game ID' });
+  }
 });
 
 // === CHUNKED UPLOAD ===

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, type FormEvent } from 'react';
 import axios from 'axios';
 import { api } from '../../api/client';
 import type { Game } from '../../stores/gameStore';
+import { SplitScreenEditor } from '../../components/admin/SplitScreenEditor';
 
 const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB — safe under Cloudflare's 100MB limit
 
@@ -432,6 +433,20 @@ export function GameManager() {
             </p>
           )}
         </form>
+
+        {/* SplitScreen Cheats Editor — shown when editing a game */}
+        {editingId && (() => {
+          const editingGame = games.find(g => g._id === editingId);
+          if (!editingGame?.hasSplitScreen) return null;
+          return (
+            <SplitScreenEditor
+              gameId={editingId}
+              gameTitle={editingGame.title}
+              cheats={editingGame.splitScreenCheats}
+              onUpdate={fetchGames}
+            />
+          );
+        })()}
       </div>
 
       {/* Game list */}
@@ -472,6 +487,11 @@ export function GameManager() {
                   <span className={`badge ${game.isActive ? 'badge-active' : 'badge-inactive'}`}>
                     {game.isActive ? 'Hien' : 'An'}
                   </span>
+                  {game.splitScreenCheats && (
+                    <span className="badge" style={{ marginLeft: 4, background: '#2a6', color: '#fff', fontSize: 10 }}>
+                      Cheats
+                    </span>
+                  )}
                 </td>
                 <td>
                   <div className="action-buttons">

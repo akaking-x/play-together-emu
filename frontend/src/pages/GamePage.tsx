@@ -11,6 +11,7 @@ import { useNetplay } from '../hooks/useNetplay';
 import { useGameLoop } from '../hooks/useGameLoop';
 import { useRoomStore } from '../stores/roomStore';
 import { useAuthStore } from '../stores/authStore';
+import { applyCheats, removeCheats, getPlayerNumber } from '../emulator/split-screen';
 import { api } from '../api/client';
 import type { Game } from '../stores/gameStore';
 
@@ -67,6 +68,15 @@ export function GamePage() {
         const gameData = gameRes.data as Game;
         setGame(gameData);
 
+        // Apply split-screen cheats BEFORE emulator starts
+        if (gameData.splitScreenCheats && isMultiplayer && room) {
+          const localPlayer = room.players.find(p => p.userId === localUserId);
+          if (localPlayer) {
+            const playerNum = getPlayerNumber(localPlayer.controllerPort);
+            applyCheats(gameData.splitScreenCheats, playerNum);
+          }
+        }
+
         setRomUrl(`/api/games/${gameId}/rom`);
 
         try {
@@ -93,6 +103,9 @@ export function GamePage() {
     };
 
     fetchGame();
+    return () => {
+      removeCheats();
+    };
   }, [gameId]);
 
   // Initialize input mapper
