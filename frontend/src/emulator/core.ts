@@ -72,7 +72,7 @@ export class EmulatorCore {
       window.EJS_player = `#${containerId}`;
       window.EJS_core = 'psx';
       window.EJS_gameUrl = romUrl;
-      window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+      window.EJS_pathtodata = '/emulatorjs/data/';
       window.EJS_startOnLoaded = true;
       window.EJS_DEBUG = false;
 
@@ -89,15 +89,15 @@ export class EmulatorCore {
 
       // Check if EmulatorJS script is already loaded in the DOM
       const existingScript = document.querySelector(
-        'script[src*="cdn.emulatorjs.org"][src*="loader.js"]'
+        'script[src*="loader.js"]'
       );
       if (existingScript) {
         // Remove old script and related elements so EmulatorJS reinitializes
         existingScript.remove();
       }
 
-      // Load EmulatorJS loader script
-      await this.loadScript('https://cdn.emulatorjs.org/stable/data/loader.js');
+      // Load EmulatorJS loader script (self-hosted)
+      await this.loadScript('/emulatorjs/data/loader.js');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to init emulator';
       this.setState('error');
