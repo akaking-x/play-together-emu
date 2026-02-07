@@ -35,12 +35,28 @@ export class SignalingServer {
   }
 
   private onConnect(ws: WebSocket, user: TokenPayload) {
-    // Kick old connection for the same user
+    // If same user reconnects, inherit their roomId so they stay in the room
     const old = this.connections.get(user.id);
-    if (old) old.ws.close(1000, 'Replaced');
+    let inheritedRoomId: string | null = null;
 
-    const conn: ConnectedUser = { ws, user, roomId: null };
+    if (old) {
+      inheritedRoomId = old.roomId;
+      old.roomId = null; // Clear BEFORE close so close handler won't remove from room
+      old.ws.close(1000, 'Replaced');
+    }
+
+    const conn: ConnectedUser = { ws, user, roomId: inheritedRoomId };
     this.connections.set(user.id, conn);
+
+    // If reconnecting to a room, verify and send current state
+    if (inheritedRoomId) {
+      const room = this.rooms.get(inheritedRoomId);
+      if (room && room.players.find(p => p.userId === user.id)) {
+        this.send(ws, { type: 'room-updated', room });
+      } else {
+        conn.roomId = null; // Room gone or player was removed
+      }
+    }
 
     ws.on('message', (raw) => {
       try {
@@ -51,6 +67,9 @@ export class SignalingServer {
     });
 
     ws.on('close', () => {
+      // If this connection was replaced by a newer one, don't touch the room
+      if (this.connections.get(user.id) !== conn) return;
+
       if (conn.roomId) {
         const room = this.rooms.get(conn.roomId);
         // During 'playing', reserve slot instead of permanent leave
@@ -60,10 +79,7 @@ export class SignalingServer {
           this.leaveRoom(conn);
         }
       }
-      // Only remove from connections if this is still the current connection
-      if (this.connections.get(user.id) === conn) {
-        this.connections.delete(user.id);
-      }
+      this.connections.delete(user.id);
     });
   }
 
@@ -133,8 +149,21 @@ export class SignalingServer {
           this.send(conn.ws, { type: 'error', code: 'NOT_FOUND', message: 'Room not found' });
           return;
         }
+
+        if (room.status === 'waiting') {
+          // Rejoin waiting room — just re-associate the connection
+          const existingPlayer = room.players.find(p => p.userId === conn.user.id);
+          if (!existingPlayer) {
+            this.send(conn.ws, { type: 'error', code: 'NOT_IN_ROOM', message: 'Not in this room' });
+            return;
+          }
+          conn.roomId = room.id;
+          this.broadcastRoom(room.id);
+          break;
+        }
+
         if (room.status !== 'playing') {
-          this.send(conn.ws, { type: 'error', code: 'NOT_PLAYING', message: 'Room is not in playing state' });
+          this.send(conn.ws, { type: 'error', code: 'ROOM_CLOSED', message: 'Room is closed' });
           return;
         }
         if (!this.rooms.isReserved(room.id, conn.user.id)) {

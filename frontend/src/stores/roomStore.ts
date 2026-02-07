@@ -46,9 +46,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     const client = new SignalingClient({
       onOpen: () => {
         set({ connected: true });
-        // Auto-rejoin room if was in a game
+        // Auto-rejoin room on reconnect (both waiting and playing states)
         const state = get();
-        if (state.gameStarting && state.room) {
+        if (state.room) {
           client.rejoinRoom(state.room.id);
         }
       },
@@ -81,7 +81,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       onGameSynced: () => {
         set({ gameSynced: true });
       },
-      onError: (_code, msg) => {
+      onError: (code, msg) => {
+        // If rejoin failed (room gone / not in room), clear stale room state
+        if (code === 'NOT_FOUND' || code === 'NOT_IN_ROOM' || code === 'ROOM_CLOSED') {
+          set({ room: null, gameStarting: false, gameSynced: false, loadedPlayers: [] });
+        }
         set({ error: msg });
         setTimeout(() => set({ error: null }), 5000);
       },
