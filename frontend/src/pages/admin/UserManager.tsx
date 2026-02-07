@@ -94,7 +94,20 @@ export function UserManager() {
   };
 
   const handleResetPassword = async (user: User) => {
-    const res = await api.patch(`/admin/users/${user._id}`, { resetPassword: true });
+    const choice = prompt(
+      `Reset mat khau cho "${user.displayName}" (${user.username}):\n\n` +
+      '- Nhap mat khau moi, hoac\n' +
+      '- Bo trong de tao mat khau ngau nhien\n\n' +
+      'Mat khau moi:'
+    );
+    // null = user cancelled the prompt
+    if (choice === null) return;
+
+    const body: Record<string, unknown> = { resetPassword: true };
+    if (choice.trim()) {
+      body.newPassword = choice.trim();
+    }
+    const res = await api.patch(`/admin/users/${user._id}`, body);
     const data = res.data as { newPassword?: string };
     if (data.newPassword) {
       setCreatedUsers([{ username: user.username, password: data.newPassword, displayName: user.displayName }]);

@@ -48,7 +48,7 @@ adminRoutes.get('/users', async (req, res) => {
 });
 
 adminRoutes.patch('/users/:id', async (req, res) => {
-  const { displayName, role, isActive, resetPassword } = req.body;
+  const { displayName, role, isActive, resetPassword, newPassword: customPassword } = req.body;
   const update: Record<string, unknown> = {};
   if (displayName !== undefined) update.displayName = displayName;
   if (role !== undefined) update.role = role;
@@ -56,10 +56,14 @@ adminRoutes.patch('/users/:id', async (req, res) => {
 
   let newPassword: string | null = null;
   if (resetPassword) {
-    const crypto = await import('crypto');
-    newPassword = Array.from(crypto.randomBytes(10), b =>
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[b % 62]
-    ).join('');
+    if (customPassword && typeof customPassword === 'string' && customPassword.length > 0) {
+      newPassword = customPassword;
+    } else {
+      const crypto = await import('crypto');
+      newPassword = Array.from(crypto.randomBytes(10), b =>
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[b % 62]
+      ).join('');
+    }
     update.passwordHash = await bcrypt.hash(newPassword, 10);
   }
 

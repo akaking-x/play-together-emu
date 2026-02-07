@@ -6,6 +6,8 @@ export function GameManager() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Upload form state
@@ -53,6 +55,8 @@ export function GameManager() {
     if (!file) return;
 
     setUploading(true);
+    setUploadProgress(0);
+    setUploadError(null);
     try {
       const formData = new FormData();
       formData.append('rom', file);
@@ -67,9 +71,17 @@ export function GameManager() {
 
       await api.post('/admin/games', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => {
+          if (e.total) {
+            setUploadProgress(Math.round((e.loaded / e.total) * 100));
+          }
+        },
       });
       resetForm();
       fetchGames();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: string } }; message?: string };
+      setUploadError(axiosErr.response?.data?.error ?? axiosErr.message ?? 'Upload that bai');
     } finally {
       setUploading(false);
     }
@@ -222,7 +234,7 @@ export function GameManager() {
           <div className="form-actions">
             <button type="submit" className="btn btn-primary" disabled={uploading}>
               {uploading
-                ? 'Dang upload...'
+                ? `Dang upload... ${uploadProgress}%`
                 : editingId
                   ? 'Luu thay doi'
                   : 'Upload game'}
@@ -233,6 +245,33 @@ export function GameManager() {
               </button>
             )}
           </div>
+          {uploading && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                width: '100%',
+                height: 6,
+                background: '#333',
+                borderRadius: 3,
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  width: `${uploadProgress}%`,
+                  height: '100%',
+                  background: uploadProgress < 100 ? '#4a9eff' : '#4ecdc4',
+                  borderRadius: 3,
+                  transition: 'width 0.3s',
+                }} />
+              </div>
+              <span style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'inline-block' }}>
+                {uploadProgress < 100 ? `${uploadProgress}%` : 'Dang xu ly...'}
+              </span>
+            </div>
+          )}
+          {uploadError && (
+            <p style={{ color: '#ff4444', marginTop: 8, marginBottom: 0, fontSize: 13 }}>
+              {uploadError}
+            </p>
+          )}
         </form>
       </div>
 
