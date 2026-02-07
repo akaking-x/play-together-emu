@@ -18,13 +18,13 @@ export class SaveManager {
   /** Upload save state data to a slot */
   async save(gameId: string, slot: number, data: Uint8Array, label?: string): Promise<void> {
     const formData = new FormData();
-    formData.append('state', new Blob([data.buffer as ArrayBuffer]), `slot_${slot}.state`);
-    if (label) {
+    // slice() creates a copy with its own ArrayBuffer, avoiding sending the
+    // entire WASM heap when data is a view into a larger buffer
+    formData.append('state', new Blob([data.slice().buffer]), `slot_${slot}.state`);
+    if (label !== undefined && label !== '') {
       formData.append('label', label);
     }
-    await api.post(`/saves/${gameId}/${slot}`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    await api.post(`/saves/${gameId}/${slot}`, formData);
   }
 
   /** Download save state data from a slot */

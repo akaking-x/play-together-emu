@@ -25,6 +25,7 @@ export function GamePage() {
   const [romUrl, setRomUrl] = useState<string | null>(null);
   const [showSaves, setShowSaves] = useState(false);
   const [showKeyMapper, setShowKeyMapper] = useState(false);
+  const [saveRefreshKey, setSaveRefreshKey] = useState(0);
   const [keyMapping, setKeyMapping] = useState<Record<string, string>>(DEFAULT_KEYMAP);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -264,7 +265,8 @@ export function GamePage() {
 
   const handleSaveToSlot = useCallback(async (slot: number) => {
     if (!game) return;
-    const label = prompt('Nhan cho save state (de trong neu khong can):') ?? '';
+    const label = prompt('Nhan cho save state (de trong neu khong can):');
+    if (label === null) return; // User pressed Cancel
     try {
       const stateData = emulatorInstance?.saveState();
       if (!stateData) {
@@ -272,19 +274,22 @@ export function GamePage() {
         return;
       }
       await saveManager.save(game._id, slot, stateData, label);
-    } catch {
+      setSaveRefreshKey(k => k + 1);
+    } catch (err) {
+      console.error('Save state error:', err);
       alert('Loi khi save state');
     }
   }, [game, emulatorInstance]);
 
   const handleLoadFromSlot = useCallback(async (slot: number) => {
-    if (!game) return;
+    if (!game || !emulatorInstance) return;
     try {
       const data = await saveManager.load(game._id, slot);
-      if (data && emulatorInstance) {
+      if (data) {
         emulatorInstance.loadState(data);
       }
-    } catch {
+    } catch (err) {
+      console.error('Load state error:', err);
       alert('Loi khi load save state');
     }
   }, [game, emulatorInstance]);
@@ -481,6 +486,7 @@ export function GamePage() {
           <div style={{ width: 400, flexShrink: 0 }}>
             <h3 style={{ marginTop: 0, marginBottom: 12 }}>Save States</h3>
             <SaveSlotGrid
+              key={saveRefreshKey}
               gameId={game._id}
               onLoad={handleLoadFromSlot}
               onSave={handleSaveToSlot}
