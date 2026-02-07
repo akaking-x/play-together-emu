@@ -20,6 +20,7 @@ interface RoomState {
   clearRoom: () => void;
   clearError: () => void;
   clearReconnectState: () => void;
+  setReadyLocal: (userId: string, ready: boolean) => void;
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -112,4 +113,17 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   clearReconnectState: () => set({ reconnectState: null }),
+
+  setReadyLocal: (userId: string, ready: boolean) => {
+    const room = get().room;
+    if (!room) return;
+    set({
+      room: {
+        ...room,
+        players: room.players.map(p =>
+          p.userId === userId ? { ...p, isReady: ready } : p
+        ),
+      },
+    });
+  },
 }));

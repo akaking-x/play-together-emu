@@ -15,6 +15,7 @@ export function useRoom() {
   const gameStarting = useRoomStore((s) => s.gameStarting);
   const connect = useRoomStore((s) => s.connect);
   const clearRoom = useRoomStore((s) => s.clearRoom);
+  const setReadyLocal = useRoomStore((s) => s.setReadyLocal);
 
   // Auto-connect when token is available
   useEffect(() => {
@@ -42,7 +43,11 @@ export function useRoom() {
 
   const setReady = useCallback((ready: boolean) => {
     client?.setReady(ready);
-  }, [client]);
+    // Optimistic local update so the UI responds immediately
+    if (user) {
+      setReadyLocal(user.id, ready);
+    }
+  }, [client, user, setReadyLocal]);
 
   const startGame = useCallback(() => {
     client?.startGame();

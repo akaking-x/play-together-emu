@@ -186,6 +186,21 @@ export function LobbyPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: '#aaa' }}>
+                Che do multiplayer
+              </label>
+              <div style={{
+                padding: '8px 12px',
+                background: '#2a2a3e',
+                border: '1px solid #555',
+                borderRadius: 4,
+                color: '#4ecdc4',
+                fontSize: 13,
+              }}>
+                Host Streaming — Host chay emulator, guest xem stream video
+              </div>
+            </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
               <input
                 type="checkbox"

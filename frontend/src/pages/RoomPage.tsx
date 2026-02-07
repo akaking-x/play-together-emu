@@ -185,6 +185,23 @@ export function RoomPage() {
               {room.players.length < 2 ? 'Ban co the bat dau choi mot minh hoac doi them nguoi choi.' : 'Doi tat ca nguoi choi san sang...'}
             </p>
           )}
+
+          {room.players.length > 1 && (
+            <div style={{
+              marginTop: 16,
+              padding: '10px 16px',
+              background: '#1a1a2e',
+              border: '1px solid #333',
+              borderRadius: 6,
+              fontSize: 13,
+            }}>
+              <span style={{ color: '#888' }}>Che do multiplayer: </span>
+              <span style={{ color: '#4ecdc4', fontWeight: 'bold' }}>Host Streaming</span>
+              <p style={{ color: '#666', fontSize: 12, margin: '6px 0 0' }}>
+                Host chay emulator va stream video cho guest. Guest gui input qua WebRTC.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Right: Chat */}
