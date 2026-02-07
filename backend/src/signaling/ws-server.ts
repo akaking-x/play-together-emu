@@ -110,8 +110,8 @@ export class SignalingServer {
       }
 
       case 'join-room': {
-        // Leave current room first if already in one
-        if (conn.roomId) this.leaveRoom(conn);
+        // Leave current room first if already in a DIFFERENT room
+        if (conn.roomId && conn.roomId !== msg.roomId) this.leaveRoom(conn);
 
         const room = this.rooms.get(msg.roomId);
         if (!room) {
@@ -122,6 +122,16 @@ export class SignalingServer {
           this.send(conn.ws, { type: 'error', code: 'STARTED', message: 'Game already started' });
           return;
         }
+
+        // If player is already in this room (ghost from previous connection),
+        // just re-associate the connection instead of adding a duplicate
+        const existingPlayer = room.players.find(p => p.userId === conn.user.id);
+        if (existingPlayer) {
+          conn.roomId = room.id;
+          this.broadcastRoom(room.id);
+          break;
+        }
+
         if (room.players.length >= room.maxPlayers) {
           this.send(conn.ws, { type: 'error', code: 'FULL', message: 'Room is full' });
           return;
