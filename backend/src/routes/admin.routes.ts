@@ -10,6 +10,7 @@ import path from 'path';
 import { config } from '../config.js';
 import { storageService } from '../services/storage.service.js';
 import { parseCheatsFile } from '../services/split-screen.service.js';
+import sharp from 'sharp';
 
 export const adminRoutes = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -150,6 +151,43 @@ adminRoutes.delete('/games/:id', async (req, res) => {
     await game.deleteOne();
   }
   res.json({ success: true });
+});
+
+// === COVER UPLOAD ===
+
+adminRoutes.post('/games/:id/cover', upload.single('cover'), async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'Cover image required' });
+    return;
+  }
+
+  try {
+    const game = await Game.findById(req.params.id);
+    if (!game) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    // Delete old cover if exists
+    if (game.coverPath) {
+      await storageService.deleteCover(game.coverPath);
+    }
+
+    // Resize to 480x270 (16:9), JPEG quality 80
+    const processed = await sharp(req.file.buffer)
+      .resize(480, 270, { fit: 'cover' })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+
+    const coverPath = await storageService.saveCover(game._id.toString(), processed);
+    game.coverPath = coverPath;
+    await game.save();
+
+    res.json(game);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Cover upload failed';
+    res.status(400).json({ error: msg });
+  }
 });
 
 // === CHEATS MANAGEMENT ===

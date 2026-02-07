@@ -322,6 +322,74 @@ code {
   color: #f07c7c;
 }
 
+/* === Search Bar === */
+.search-bar {
+  margin-bottom: 16px;
+}
+
+.search-bar input {
+  width: 100%;
+  padding: 10px 14px;
+  background: #111125;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #eee;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-bar input:focus {
+  border-color: #5c5cf0;
+}
+
+.search-bar input::placeholder {
+  color: #555;
+}
+
+/* === Alphabet Filter === */
+.alphabet-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.alphabet-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #1a1a2e;
+  color: #aaa;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.alphabet-btn:hover {
+  background: #252540;
+  color: #eee;
+  border-color: #444;
+}
+
+.alphabet-btn.active {
+  background: #5c5cf0;
+  color: #fff;
+  border-color: #5c5cf0;
+}
+
+.alphabet-btn-clear {
+  width: auto;
+  padding: 0 10px;
+  margin-left: 4px;
+}
+
 /* === Game Grid === */
 .game-grid {
   display: grid;

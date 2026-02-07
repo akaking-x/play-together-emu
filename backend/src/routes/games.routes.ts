@@ -34,6 +34,25 @@ gamesRoutes.get('/bios/:filename', (req, res) => {
   stream.pipe(res);
 });
 
+// GET /api/games/covers/:filename - serve cover image (public, no auth)
+gamesRoutes.get('/covers/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const coverPath = path.join(config.STORAGE_LOCAL_PATH, 'covers', filename);
+
+  if (!existsSync(coverPath)) {
+    res.status(404).json({ error: 'Cover not found' });
+    return;
+  }
+
+  res.set('Content-Type', 'image/jpeg');
+  res.set('Cache-Control', 'public, max-age=86400');
+  const stream = createReadStream(coverPath);
+  stream.on('error', () => {
+    res.status(500).json({ error: 'Failed to read cover file' });
+  });
+  stream.pipe(res);
+});
+
 // GET /api/games/:id - game detail
 gamesRoutes.get('/:id', async (req, res) => {
   try {

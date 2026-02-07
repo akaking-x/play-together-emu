@@ -11,6 +11,8 @@ export interface IStorageService {
   saveSaveState(userId: string, gameId: string, slot: number, data: Buffer): Promise<string>;
   getSaveState(userId: string, gameId: string, slot: number): Promise<Buffer | null>;
   deleteSaveState(userId: string, gameId: string, slot: number): Promise<void>;
+  saveCover(gameId: string, data: Buffer): Promise<string>;
+  deleteCover(coverPath: string): Promise<void>;
 }
 
 class LocalStorageService implements IStorageService {
@@ -78,6 +80,18 @@ class LocalStorageService implements IStorageService {
     const filePath = path.join(this.base, 'saves', userId, gameId, `slot_${slot}.state`);
     try { await fs.unlink(filePath); } catch { /* ignore */ }
   }
+
+  async saveCover(gameId: string, data: Buffer) {
+    const dir = path.join(this.base, 'covers');
+    await fs.mkdir(dir, { recursive: true });
+    const filename = `${gameId}.jpg`;
+    await fs.writeFile(path.join(dir, filename), data);
+    return `covers/${filename}`;
+  }
+
+  async deleteCover(coverPath: string) {
+    try { await fs.unlink(path.join(this.base, coverPath)); } catch { /* ignore */ }
+  }
 }
 
 class S3StorageService implements IStorageService {
@@ -92,6 +106,8 @@ class S3StorageService implements IStorageService {
   async saveSaveState(userId: string, gameId: string, slot: number, data: Buffer) { /* TODO */ return ''; }
   async getSaveState(userId: string, gameId: string, slot: number) { /* TODO */ return null; }
   async deleteSaveState(userId: string, gameId: string, slot: number) { /* TODO */ }
+  async saveCover(gameId: string, data: Buffer) { /* TODO */ return ''; }
+  async deleteCover(coverPath: string) { /* TODO */ }
 }
 
 export const storageService: IStorageService =

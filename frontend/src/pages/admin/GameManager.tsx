@@ -27,6 +27,7 @@ export function GameManager() {
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [description, setDescription] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const coverRef = useRef<HTMLInputElement>(null);
 
   const fetchGames = async () => {
     setLoading(true);
@@ -209,6 +210,13 @@ export function GameManager() {
       maxPlayers,
       description,
     });
+
+    // Upload cover if selected
+    const coverFile = coverRef.current?.files?.[0];
+    if (coverFile) {
+      await handleCoverUpload(editingId, coverFile);
+    }
+
     resetForm();
     fetchGames();
   };
@@ -221,6 +229,13 @@ export function GameManager() {
   const handleDelete = async (game: Game) => {
     if (!window.confirm(`Xoa game "${game.title}"?`)) return;
     await api.delete(`/admin/games/${game._id}`);
+    fetchGames();
+  };
+
+  const handleCoverUpload = async (gameId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('cover', file);
+    await api.post(`/admin/games/${gameId}/cover`, formData);
     fetchGames();
   };
 
@@ -333,6 +348,16 @@ export function GameManager() {
             />
           </div>
 
+          {editingId && (
+            <div className="form-group">
+              <label>Anh bia</label>
+              <input type="file" ref={coverRef} accept="image/*" />
+              <p style={{ fontSize: 12, color: '#888', margin: '4px 0 0' }}>
+                Anh se duoc resize thanh 480x270 (16:9) va chuyen sang JPEG.
+              </p>
+            </div>
+          )}
+
           {!editingId && (
             <>
               <div className="form-group">
@@ -420,6 +445,7 @@ export function GameManager() {
           <thead>
             <tr>
               <th>Ten game</th>
+              <th>Bia</th>
               <th>Khu vuc</th>
               <th>The loai</th>
               <th>So nguoi choi</th>
@@ -435,6 +461,32 @@ export function GameManager() {
                   <strong>{game.title}</strong>
                   <br />
                   <span className="text-muted text-sm">{game.slug}</span>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {game.coverPath ? (
+                      <img
+                        src={`/api/games/covers/${game.coverPath.replace('covers/', '')}`}
+                        alt=""
+                        style={{ width: 60, height: 34, objectFit: 'cover', borderRadius: 4 }}
+                      />
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                    <label className="btn btn-sm" style={{ cursor: 'pointer', marginBottom: 0 }}>
+                      Upload
+                      <input
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleCoverUpload(game._id, f);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
                 </td>
                 <td><span className="badge">{game.region}</span></td>
                 <td>{game.genre || '-'}</td>

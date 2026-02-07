@@ -13,7 +13,7 @@ export function GameCard({ game }: Props) {
       <div className="game-card-cover">
         {game.coverPath ? (
           <img
-            src={`/storage/${game.coverPath}`}
+            src={`/api/games/covers/${game.coverPath.replace('covers/', '')}`}
             alt={game.title}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
