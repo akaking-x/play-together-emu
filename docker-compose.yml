@@ -31,7 +31,7 @@ services:
     container_name: psx-frontend
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8090:80"
     depends_on:
       - backend
     networks:
