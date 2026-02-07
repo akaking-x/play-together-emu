@@ -7,6 +7,8 @@ export function GameManager() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedBytes, setUploadedBytes] = useState(0);
+  const [uploadTotalBytes, setUploadTotalBytes] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -56,6 +58,8 @@ export function GameManager() {
 
     setUploading(true);
     setUploadProgress(0);
+    setUploadedBytes(0);
+    setUploadTotalBytes(file.size);
     setUploadError(null);
     try {
       const formData = new FormData();
@@ -70,10 +74,12 @@ export function GameManager() {
       formData.append('description', description);
 
       await api.post('/admin/games', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (e) => {
-          if (e.total) {
-            setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        timeout: 600000, // 10 minutes for large ROMs
+        onUploadProgress: (evt) => {
+          setUploadedBytes(evt.loaded);
+          const total = evt.total ?? file.size;
+          if (total > 0) {
+            setUploadProgress(Math.round((evt.loaded / total) * 100));
           }
         },
       });
@@ -263,7 +269,9 @@ export function GameManager() {
                 }} />
               </div>
               <span style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'inline-block' }}>
-                {uploadProgress < 100 ? `${uploadProgress}%` : 'Dang xu ly...'}
+                {uploadProgress < 100
+                  ? `${uploadProgress}% — ${formatSize(uploadedBytes)} / ${formatSize(uploadTotalBytes)}`
+                  : 'Dang xu ly tren server...'}
               </span>
             </div>
           )}
