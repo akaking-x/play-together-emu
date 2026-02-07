@@ -4,10 +4,39 @@ import { User } from '../models/User.js';
 import { Game } from '../models/Game.js';
 import bcrypt from 'bcrypt';
 import multer from 'multer';
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
+import { config } from '../config.js';
 import { storageService } from '../services/storage.service.js';
 
 export const adminRoutes = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+// === CHUNKED UPLOAD SESSION STORE ===
+
+interface UploadSession {
+  id: string;
+  filename: string;
+  fileSize: number;
+  totalChunks: number;
+  receivedChunks: Set<number>;
+  tempDir: string;
+  createdAt: number;
+}
+
+const uploadSessions = new Map<string, UploadSession>();
+
+// Auto-cleanup sessions older than 1 hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of uploadSessions) {
+    if (now - session.createdAt > 3600000) {
+      fs.rm(session.tempDir, { recursive: true, force: true }).catch(() => {});
+      uploadSessions.delete(id);
+    }
+  }
+}, 60000);
 
 // === USER MANAGEMENT ===
 
@@ -120,6 +149,97 @@ adminRoutes.delete('/games/:id', async (req, res) => {
     await game.deleteOne();
   }
   res.json({ success: true });
+});
+
+// === CHUNKED UPLOAD ===
+
+adminRoutes.post('/games/upload/init', async (req, res) => {
+  const { filename, fileSize, totalChunks } = req.body;
+  if (!filename || !fileSize || !totalChunks) {
+    res.status(400).json({ error: 'Missing filename, fileSize, or totalChunks' });
+    return;
+  }
+
+  const sessionId = crypto.randomBytes(16).toString('hex');
+  const tempDir = path.join(config.STORAGE_LOCAL_PATH, 'tmp_uploads', sessionId);
+  await fs.mkdir(tempDir, { recursive: true });
+
+  uploadSessions.set(sessionId, {
+    id: sessionId,
+    filename,
+    fileSize,
+    totalChunks,
+    receivedChunks: new Set(),
+    tempDir,
+    createdAt: Date.now(),
+  });
+
+  res.json({ sessionId, totalChunks });
+});
+
+adminRoutes.post('/games/upload/chunk/:sessionId/:chunkIndex', upload.single('chunk'), async (req, res) => {
+  const sessionId = req.params.sessionId as string;
+  const chunkIndex = req.params.chunkIndex as string;
+  const session = uploadSessions.get(sessionId);
+  if (!session) {
+    res.status(404).json({ error: 'Upload session not found or expired' });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ error: 'Chunk data required' });
+    return;
+  }
+
+  const idx = parseInt(chunkIndex);
+  const chunkPath = path.join(session.tempDir, `chunk_${idx}`);
+  await fs.writeFile(chunkPath, req.file.buffer);
+  session.receivedChunks.add(idx);
+
+  res.json({ received: idx, total: session.totalChunks, done: session.receivedChunks.size });
+});
+
+adminRoutes.post('/games/upload/complete/:sessionId', async (req, res) => {
+  const session = uploadSessions.get(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ error: 'Upload session not found or expired' });
+    return;
+  }
+
+  if (session.receivedChunks.size < session.totalChunks) {
+    res.status(400).json({
+      error: `Missing chunks: received ${session.receivedChunks.size}/${session.totalChunks}`,
+    });
+    return;
+  }
+
+  const { title, slug, discId, region, genre, minPlayers, maxPlayers, description } = req.body;
+
+  // Build ordered chunk paths
+  const chunkPaths: string[] = [];
+  for (let i = 0; i < session.totalChunks; i++) {
+    chunkPaths.push(path.join(session.tempDir, `chunk_${i}`));
+  }
+
+  // Assemble chunks into final ROM
+  const { romPath, sizeBytes } = await storageService.saveROMFromChunks(session.filename, chunkPaths);
+
+  // Create game record
+  const game = await Game.create({
+    title, slug, discId, region, genre,
+    minPlayers: parseInt(minPlayers) || 2,
+    maxPlayers: parseInt(maxPlayers) || 2,
+    description,
+    romFilename: session.filename,
+    romPath,
+    romSizeBytes: sizeBytes,
+  });
+
+  // Cleanup temp chunks
+  await fs.rm(session.tempDir, { recursive: true, force: true }).catch(() => {});
+  uploadSessions.delete(session.id);
+
+  res.json(game);
 });
 
 // === STATS ===

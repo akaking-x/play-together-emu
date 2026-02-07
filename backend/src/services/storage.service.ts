@@ -1,9 +1,11 @@
 import fs from 'fs/promises';
+import { createReadStream, createWriteStream } from 'fs';
 import path from 'path';
 import { config } from '../config.js';
 
 export interface IStorageService {
   saveROM(filename: string, data: Buffer): Promise<string>;
+  saveROMFromChunks(filename: string, chunkPaths: string[]): Promise<{ romPath: string; sizeBytes: number }>;
   getROMStream(romPath: string): Promise<string>;
   deleteROM(romPath: string): Promise<void>;
   saveSaveState(userId: string, gameId: string, slot: number, data: Buffer): Promise<string>;
@@ -24,6 +26,31 @@ class LocalStorageService implements IStorageService {
     const filePath = path.join(dir, filename);
     await fs.writeFile(filePath, data);
     return `roms/${filename}`;
+  }
+
+  async saveROMFromChunks(filename: string, chunkPaths: string[]) {
+    const dir = path.join(this.base, 'roms');
+    await fs.mkdir(dir, { recursive: true });
+    const filePath = path.join(dir, filename);
+
+    // Stream-concatenate chunks to avoid loading everything into memory
+    await new Promise<void>((resolve, reject) => {
+      const ws = createWriteStream(filePath);
+      let i = 0;
+      const next = () => {
+        if (i >= chunkPaths.length) { ws.end(); return; }
+        const rs = createReadStream(chunkPaths[i++]);
+        rs.pipe(ws, { end: false });
+        rs.on('end', next);
+        rs.on('error', reject);
+      };
+      ws.on('finish', resolve);
+      ws.on('error', reject);
+      next();
+    });
+
+    const stat = await fs.stat(filePath);
+    return { romPath: `roms/${filename}`, sizeBytes: stat.size };
   }
 
   async getROMStream(romPath: string) {
@@ -59,6 +86,7 @@ class S3StorageService implements IStorageService {
   // Use PutObject/GetObject for saves
 
   async saveROM(filename: string, data: Buffer) { /* TODO */ return ''; }
+  async saveROMFromChunks(filename: string, chunkPaths: string[]) { /* TODO */ return { romPath: '', sizeBytes: 0 }; }
   async getROMStream(romPath: string) { /* TODO: signed URL */ return ''; }
   async deleteROM(romPath: string) { /* TODO */ }
   async saveSaveState(userId: string, gameId: string, slot: number, data: Buffer) { /* TODO */ return ''; }

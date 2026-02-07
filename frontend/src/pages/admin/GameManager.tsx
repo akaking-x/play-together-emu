@@ -1,6 +1,11 @@
 import { useEffect, useState, useRef, type FormEvent } from 'react';
+import axios from 'axios';
 import { api } from '../../api/client';
 import type { Game } from '../../stores/gameStore';
+
+const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB — safe under Cloudflare's 100MB limit
+
+type UploadMode = 'cloudflare' | 'direct';
 
 export function GameManager() {
   const [games, setGames] = useState<Game[]>([]);
@@ -9,8 +14,17 @@ export function GameManager() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedBytes, setUploadedBytes] = useState(0);
   const [uploadTotalBytes, setUploadTotalBytes] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Upload mode
+  const [uploadMode, setUploadMode] = useState<UploadMode>(
+    () => (localStorage.getItem('uploadMode') as UploadMode) || 'cloudflare'
+  );
+  const [directUrl, setDirectUrl] = useState(
+    () => localStorage.getItem('directUploadUrl') || ''
+  );
 
   // Upload form state
   const [title, setTitle] = useState('');
@@ -38,6 +52,14 @@ export function GameManager() {
     fetchGames();
   }, []);
 
+  // Save upload mode preferences
+  useEffect(() => {
+    localStorage.setItem('uploadMode', uploadMode);
+  }, [uploadMode]);
+  useEffect(() => {
+    localStorage.setItem('directUploadUrl', directUrl);
+  }, [directUrl]);
+
   const resetForm = () => {
     setTitle('');
     setSlug('');
@@ -51,6 +73,102 @@ export function GameManager() {
     setEditingId(null);
   };
 
+  const getToken = () => localStorage.getItem('token') || '';
+  const getSlugValue = () => slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+  // Create an axios instance for the chosen upload target
+  const getUploadClient = () => {
+    if (uploadMode === 'direct' && directUrl.trim()) {
+      const baseURL = directUrl.trim().replace(/\/+$/, '') + '/api';
+      const client = axios.create({ baseURL });
+      client.interceptors.request.use((cfg) => {
+        cfg.headers.Authorization = `Bearer ${getToken()}`;
+        return cfg;
+      });
+      return client;
+    }
+    return api;
+  };
+
+  // Normal single-request upload (small files or direct mode)
+  const uploadNormal = async (file: File) => {
+    const client = getUploadClient();
+    const formData = new FormData();
+    formData.append('rom', file);
+    formData.append('title', title);
+    formData.append('slug', getSlugValue());
+    formData.append('discId', discId);
+    formData.append('region', region);
+    formData.append('genre', genre);
+    formData.append('minPlayers', String(minPlayers));
+    formData.append('maxPlayers', String(maxPlayers));
+    formData.append('description', description);
+
+    setUploadStatus('Dang upload...');
+    await client.post('/admin/games', formData, {
+      timeout: 600000,
+      onUploadProgress: (evt) => {
+        setUploadedBytes(evt.loaded);
+        const total = evt.total ?? file.size;
+        if (total > 0) {
+          setUploadProgress(Math.round((evt.loaded / total) * 100));
+        }
+      },
+    });
+  };
+
+  // Chunked upload (for large files through Cloudflare)
+  const uploadChunked = async (file: File) => {
+    const client = getUploadClient();
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    // 1. Init session
+    setUploadStatus(`Khoi tao upload (${totalChunks} phan)...`);
+    const initRes = await client.post('/admin/games/upload/init', {
+      filename: file.name,
+      fileSize: file.size,
+      totalChunks,
+    });
+    const { sessionId } = initRes.data as { sessionId: string };
+
+    // 2. Upload chunks sequentially
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunk = file.slice(start, end);
+      const chunkSize = end - start;
+
+      setUploadStatus(`Dang upload phan ${i + 1}/${totalChunks}...`);
+
+      const formData = new FormData();
+      formData.append('chunk', chunk, `chunk_${i}`);
+
+      await client.post(`/admin/games/upload/chunk/${sessionId}/${i}`, formData, {
+        timeout: 600000,
+        onUploadProgress: (evt) => {
+          const chunkProgress = evt.loaded / (evt.total ?? chunkSize);
+          const overallBytes = start + Math.round(chunkProgress * chunkSize);
+          setUploadedBytes(overallBytes);
+          setUploadProgress(Math.round((overallBytes / file.size) * 100));
+        },
+      });
+    }
+
+    // 3. Complete — assemble on server
+    setUploadStatus('Dang ghep file tren server...');
+    setUploadProgress(100);
+    await client.post(`/admin/games/upload/complete/${sessionId}`, {
+      title,
+      slug: getSlugValue(),
+      discId,
+      region,
+      genre,
+      minPlayers: String(minPlayers),
+      maxPlayers: String(maxPlayers),
+      description,
+    });
+  };
+
   const handleUpload = async (e: FormEvent) => {
     e.preventDefault();
     const file = fileRef.current?.files?.[0];
@@ -61,28 +179,15 @@ export function GameManager() {
     setUploadedBytes(0);
     setUploadTotalBytes(file.size);
     setUploadError(null);
-    try {
-      const formData = new FormData();
-      formData.append('rom', file);
-      formData.append('title', title);
-      formData.append('slug', slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-      formData.append('discId', discId);
-      formData.append('region', region);
-      formData.append('genre', genre);
-      formData.append('minPlayers', String(minPlayers));
-      formData.append('maxPlayers', String(maxPlayers));
-      formData.append('description', description);
+    setUploadStatus('');
 
-      await api.post('/admin/games', formData, {
-        timeout: 600000, // 10 minutes for large ROMs
-        onUploadProgress: (evt) => {
-          setUploadedBytes(evt.loaded);
-          const total = evt.total ?? file.size;
-          if (total > 0) {
-            setUploadProgress(Math.round((evt.loaded / total) * 100));
-          }
-        },
-      });
+    try {
+      const needChunked = uploadMode === 'cloudflare' && file.size > CHUNK_SIZE;
+      if (needChunked) {
+        await uploadChunked(file);
+      } else {
+        await uploadNormal(file);
+      }
       resetForm();
       fetchGames();
     } catch (err: unknown) {
@@ -90,6 +195,7 @@ export function GameManager() {
       setUploadError(axiosErr.response?.data?.error ?? axiosErr.message ?? 'Upload that bai');
     } finally {
       setUploading(false);
+      setUploadStatus('');
     }
   };
 
@@ -231,10 +337,52 @@ export function GameManager() {
           </div>
 
           {!editingId && (
-            <div className="form-group">
-              <label>File ROM *</label>
-              <input type="file" ref={fileRef} accept=".bin,.cue,.iso,.img,.pbp" required />
-            </div>
+            <>
+              <div className="form-group">
+                <label>File ROM *</label>
+                <input type="file" ref={fileRef} accept=".bin,.cue,.iso,.img,.pbp" required />
+              </div>
+
+              {/* Upload mode selector */}
+              <div className="form-group">
+                <label>Che do upload</label>
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="uploadMode"
+                      value="cloudflare"
+                      checked={uploadMode === 'cloudflare'}
+                      onChange={() => setUploadMode('cloudflare')}
+                    />
+                    Qua Cloudflare (tu dong chia nho file &gt;50MB)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="uploadMode"
+                      value="direct"
+                      checked={uploadMode === 'direct'}
+                      onChange={() => setUploadMode('direct')}
+                    />
+                    Truc tiep (VPS IP, khong gioi han dung luong)
+                  </label>
+                </div>
+              </div>
+
+              {uploadMode === 'direct' && (
+                <div className="form-group">
+                  <label>URL VPS (VD: http://103.82.39.35:8090)</label>
+                  <input
+                    type="text"
+                    value={directUrl}
+                    onChange={(e) => setDirectUrl(e.target.value)}
+                    placeholder="http://IP:PORT"
+                    required
+                  />
+                </div>
+              )}
+            </>
           )}
 
           <div className="form-actions">
@@ -271,7 +419,10 @@ export function GameManager() {
               <span style={{ fontSize: 12, color: '#aaa', marginTop: 4, display: 'inline-block' }}>
                 {uploadProgress < 100
                   ? `${uploadProgress}% — ${formatSize(uploadedBytes)} / ${formatSize(uploadTotalBytes)}`
-                  : 'Dang xu ly tren server...'}
+                  : uploadStatus || 'Dang xu ly tren server...'}
+                {uploadStatus && uploadProgress < 100 && (
+                  <> — {uploadStatus}</>
+                )}
               </span>
             </div>
           )}
