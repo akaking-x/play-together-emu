@@ -29,9 +29,9 @@ export class PeerConnection {
     };
 
     // Handle incoming video tracks from remote peer
-    // When host uses addTransceiver without a stream, e.streams is empty —
-    // create a MediaStream from the track so the guest can display it.
     this.pc.ontrack = (e) => {
+      console.log('[peer] ontrack fired: track kind:', e.track.kind,
+        'readyState:', e.track.readyState, 'streams:', e.streams.length);
       const stream = e.streams[0] || new MediaStream([e.track]);
       this.callbacks.onTrack?.(stream);
     };
@@ -128,28 +128,20 @@ export class PeerConnection {
     this.callbacks.onState(s);
   }
 
-  /** Call before createOffer() so the video m-line is in the initial SDP */
-  setupSendVideo(): void {
-    this.pc.addTransceiver('video', { direction: 'sendonly' });
-  }
-
-  /** Replace the placeholder video track with the real canvas stream track */
-  replaceVideoTrack(stream: MediaStream): void {
+  /**
+   * Add a video track and renegotiate.
+   * Call AFTER the initial DataChannel connection is established (signaling state = stable).
+   * Returns the new SDP offer that must be sent to the remote peer via signaling.
+   */
+  async addVideoTrack(stream: MediaStream): Promise<RTCSessionDescriptionInit> {
     const videoTrack = stream.getVideoTracks()[0];
-    if (!videoTrack) {
-      console.warn('[peer] replaceVideoTrack: no video track in stream');
-      return;
-    }
-    const senders = this.pc.getSenders();
-    const sender = senders.find(s => !s.track || s.track.kind === 'video');
-    if (sender) {
-      console.log('[peer] replaceVideoTrack: replacing track on sender, track state:', videoTrack.readyState);
-      sender.replaceTrack(videoTrack).catch(err => {
-        console.error('[peer] replaceTrack failed:', err);
-      });
-    } else {
-      console.warn('[peer] replaceVideoTrack: no video sender found among', senders.length, 'senders');
-    }
+    if (!videoTrack) throw new Error('No video track in stream');
+    console.log('[peer] addVideoTrack: adding track, state:', videoTrack.readyState,
+      'signalingState:', this.pc.signalingState);
+    this.pc.addTrack(videoTrack, stream);
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+    return offer;
   }
 
   destroy(): void {

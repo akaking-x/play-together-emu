@@ -59,7 +59,7 @@ export function GamePage() {
   clientRef.current = client;
 
   // WebRTC peer connections
-  const { peerInfos, sendToAll, setOnData, replaceTrackOnAll } = useNetplay({
+  const { peerInfos, sendToAll, setOnData, addStreamToAll } = useNetplay({
     signalingClient: clientRef,
     localUserId,
     players: room?.players ?? [],
@@ -102,7 +102,7 @@ export function GamePage() {
       console.log('[stream] Capturing canvas stream:', canvas.width, 'x', canvas.height);
       const stream = canvas.captureStream(60);
       console.log('[stream] Stream tracks:', stream.getVideoTracks().length, 'video,', stream.getAudioTracks().length, 'audio');
-      replaceTrackOnAll(stream);
+      addStreamToAll(stream);
       return true;
     };
 
@@ -121,7 +121,7 @@ export function GamePage() {
       clearInterval(interval);
       clearTimeout(timeout);
     };
-  }, [isHost, isMultiplayer, gameSynced, emulatorInstance, replaceTrackOnAll]);
+  }, [isHost, isMultiplayer, gameSynced, emulatorInstance, addStreamToAll]);
 
   // Track if we were previously disconnected (for reconnect countdown)
   const wasPeerDisconnectedRef = useRef(false);

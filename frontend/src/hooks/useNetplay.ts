@@ -65,9 +65,8 @@ export function useNetplay({ signalingClient, localUserId, players, active, isHo
 
       peersRef.current.set(rp.userId, peer);
 
-      // Host always initiates the offer (with video transceiver so m-line is stable)
+      // Host always initiates the offer (DataChannel only; video added later via renegotiation)
       if (isHost) {
-        peer.setupSendVideo();
         peer.createOffer().then((offer) => {
           client.sendSignal(rp.userId, offer);
         });
@@ -89,7 +88,6 @@ export function useNetplay({ signalingClient, localUserId, players, active, isHo
             onTrack: (stream) => onTrackRef.current?.(stream),
           },
         );
-        if (isHost) peer.setupSendVideo();
         peer.onICE((candidate) => {
           client.sendICE(fromId, candidate.toJSON());
         });
@@ -150,18 +148,29 @@ export function useNetplay({ signalingClient, localUserId, players, active, isHo
     onDataRef.current = cb;
   }, []);
 
-  const replaceTrackOnAll = useCallback((stream: MediaStream) => {
-    for (const peer of peersRef.current.values()) {
-      peer.replaceVideoTrack(stream);
+  const addStreamToAll = useCallback(async (stream: MediaStream) => {
+    const client = signalingClient.current;
+    if (!client) {
+      console.warn('[netplay] addStreamToAll: no signaling client');
+      return;
     }
-  }, []);
+    for (const [peerId, peer] of peersRef.current) {
+      try {
+        const offer = await peer.addVideoTrack(stream);
+        client.sendSignal(peerId, offer);
+        console.log('[netplay] sent renegotiation offer to', peerId);
+      } catch (err) {
+        console.error('[netplay] addVideoTrack error for', peerId, err);
+      }
+    }
+  }, [signalingClient]);
 
   return {
     peerInfos,
     sendToAll,
     sendToPeer,
     setOnData,
-    replaceTrackOnAll,
+    addStreamToAll,
     peers: peersRef,
   };
 }
