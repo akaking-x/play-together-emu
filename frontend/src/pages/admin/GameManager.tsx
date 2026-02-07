@@ -1,12 +1,9 @@
 import { useEffect, useState, useRef, type FormEvent } from 'react';
-import axios from 'axios';
 import { api } from '../../api/client';
 import type { Game } from '../../stores/gameStore';
 import { SplitScreenEditor } from '../../components/admin/SplitScreenEditor';
 
 const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB — safe under Cloudflare's 100MB limit
-
-type UploadMode = 'cloudflare' | 'direct';
 
 export function GameManager() {
   const [games, setGames] = useState<Game[]>([]);
@@ -19,13 +16,6 @@ export function GameManager() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Upload mode
-  const [uploadMode, setUploadMode] = useState<UploadMode>(
-    () => (localStorage.getItem('uploadMode') as UploadMode) || 'cloudflare'
-  );
-  const [directUrl, setDirectUrl] = useState(
-    () => localStorage.getItem('directUploadUrl') || ''
-  );
 
   // Upload form state
   const [title, setTitle] = useState('');
@@ -53,14 +43,6 @@ export function GameManager() {
     fetchGames();
   }, []);
 
-  // Save upload mode preferences
-  useEffect(() => {
-    localStorage.setItem('uploadMode', uploadMode);
-  }, [uploadMode]);
-  useEffect(() => {
-    localStorage.setItem('directUploadUrl', directUrl);
-  }, [directUrl]);
-
   const resetForm = () => {
     setTitle('');
     setSlug('');
@@ -74,26 +56,10 @@ export function GameManager() {
     setEditingId(null);
   };
 
-  const getToken = () => localStorage.getItem('token') || '';
   const getSlugValue = () => slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-  // Create an axios instance for the chosen upload target
-  const getUploadClient = () => {
-    if (uploadMode === 'direct' && directUrl.trim()) {
-      const baseURL = directUrl.trim().replace(/\/+$/, '') + '/api';
-      const client = axios.create({ baseURL });
-      client.interceptors.request.use((cfg) => {
-        cfg.headers.Authorization = `Bearer ${getToken()}`;
-        return cfg;
-      });
-      return client;
-    }
-    return api;
-  };
-
-  // Normal single-request upload (small files or direct mode)
+  // Normal single-request upload (small files)
   const uploadNormal = async (file: File) => {
-    const client = getUploadClient();
     const formData = new FormData();
     formData.append('rom', file);
     formData.append('title', title);
@@ -106,7 +72,7 @@ export function GameManager() {
     formData.append('description', description);
 
     setUploadStatus('Dang upload...');
-    await client.post('/admin/games', formData, {
+    await api.post('/admin/games', formData, {
       timeout: 600000,
       onUploadProgress: (evt) => {
         setUploadedBytes(evt.loaded);
@@ -118,47 +84,77 @@ export function GameManager() {
     });
   };
 
+  // Upload a single chunk with retry
+  const uploadChunkWithRetry = async (
+    url: string,
+    chunk: Blob,
+    chunkSize: number,
+    start: number,
+    fileSize: number,
+    chunkLabel: string,
+    maxRetries = 3,
+  ) => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const formData = new FormData();
+        formData.append('chunk', chunk, `chunk`);
+
+        await api.post(url, formData, {
+          timeout: 600000,
+          onUploadProgress: (evt) => {
+            const chunkProgress = evt.loaded / (evt.total ?? chunkSize);
+            const overallBytes = start + Math.round(chunkProgress * chunkSize);
+            setUploadedBytes(overallBytes);
+            setUploadProgress(Math.round((overallBytes / fileSize) * 100));
+          },
+        });
+        return; // success
+      } catch (err) {
+        if (attempt === maxRetries) throw err;
+        setUploadStatus(`${chunkLabel} — loi, thu lai lan ${attempt + 1}/${maxRetries}...`);
+        // Wait before retry: 2s, 4s, 6s
+        await new Promise(r => setTimeout(r, attempt * 2000));
+      }
+    }
+  };
+
   // Chunked upload (for large files through Cloudflare)
   const uploadChunked = async (file: File) => {
-    const client = getUploadClient();
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
     // 1. Init session
     setUploadStatus(`Khoi tao upload (${totalChunks} phan)...`);
-    const initRes = await client.post('/admin/games/upload/init', {
+    const initRes = await api.post('/admin/games/upload/init', {
       filename: file.name,
       fileSize: file.size,
       totalChunks,
     });
     const { sessionId } = initRes.data as { sessionId: string };
 
-    // 2. Upload chunks sequentially
+    // 2. Upload chunks sequentially with retry
     for (let i = 0; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE;
       const end = Math.min(start + CHUNK_SIZE, file.size);
       const chunk = file.slice(start, end);
       const chunkSize = end - start;
+      const label = `Dang upload phan ${i + 1}/${totalChunks}`;
 
-      setUploadStatus(`Dang upload phan ${i + 1}/${totalChunks}...`);
+      setUploadStatus(label);
 
-      const formData = new FormData();
-      formData.append('chunk', chunk, `chunk_${i}`);
-
-      await client.post(`/admin/games/upload/chunk/${sessionId}/${i}`, formData, {
-        timeout: 600000,
-        onUploadProgress: (evt) => {
-          const chunkProgress = evt.loaded / (evt.total ?? chunkSize);
-          const overallBytes = start + Math.round(chunkProgress * chunkSize);
-          setUploadedBytes(overallBytes);
-          setUploadProgress(Math.round((overallBytes / file.size) * 100));
-        },
-      });
+      await uploadChunkWithRetry(
+        `/admin/games/upload/chunk/${sessionId}/${i}`,
+        chunk,
+        chunkSize,
+        start,
+        file.size,
+        label,
+      );
     }
 
     // 3. Complete — assemble on server
     setUploadStatus('Dang ghep file tren server...');
     setUploadProgress(100);
-    await client.post(`/admin/games/upload/complete/${sessionId}`, {
+    await api.post(`/admin/games/upload/complete/${sessionId}`, {
       title,
       slug: getSlugValue(),
       discId,
@@ -183,7 +179,7 @@ export function GameManager() {
     setUploadStatus('');
 
     try {
-      const needChunked = uploadMode === 'cloudflare' && file.size > CHUNK_SIZE;
+      const needChunked = file.size > CHUNK_SIZE;
       if (needChunked) {
         await uploadChunked(file);
       } else {
@@ -344,45 +340,10 @@ export function GameManager() {
                 <input type="file" ref={fileRef} accept=".bin,.cue,.iso,.img,.pbp" required />
               </div>
 
-              {/* Upload mode selector */}
-              <div className="form-group">
-                <label>Che do upload</label>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="uploadMode"
-                      value="cloudflare"
-                      checked={uploadMode === 'cloudflare'}
-                      onChange={() => setUploadMode('cloudflare')}
-                    />
-                    Qua Cloudflare (tu dong chia nho file &gt;50MB)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="uploadMode"
-                      value="direct"
-                      checked={uploadMode === 'direct'}
-                      onChange={() => setUploadMode('direct')}
-                    />
-                    Truc tiep (VPS IP, khong gioi han dung luong)
-                  </label>
-                </div>
-              </div>
-
-              {uploadMode === 'direct' && (
-                <div className="form-group">
-                  <label>URL VPS (VD: http://103.82.39.35:8090)</label>
-                  <input
-                    type="text"
-                    value={directUrl}
-                    onChange={(e) => setDirectUrl(e.target.value)}
-                    placeholder="http://IP:PORT"
-                    required
-                  />
-                </div>
-              )}
+              {/* Upload info */}
+              <p style={{ fontSize: 12, color: '#888', margin: '4px 0 0' }}>
+                File &gt;50MB se tu dong chia nho va upload tung phan qua Cloudflare (auto-retry khi mat mang).
+              </p>
             </>
           )}
 
