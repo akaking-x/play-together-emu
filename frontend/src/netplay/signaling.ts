@@ -54,18 +54,41 @@ export class SignalingClient {
   private doConnect(): void {
     if (!this.token) return;
 
+    // Cancel any pending reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // Clean up existing WebSocket to prevent ghost onclose handlers
+    if (this.ws) {
+      const old = this.ws;
+      old.onopen = null;
+      old.onmessage = null;
+      old.onclose = null;
+      old.onerror = null;
+      if (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING) {
+        old.close();
+      }
+      this.ws = null;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const url = `${protocol}//${host}/ws?token=${this.token}`;
 
-    this.ws = new WebSocket(url);
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
-    this.ws.onopen = () => {
+    ws.onopen = () => {
+      // Verify this is still the current WebSocket (not replaced)
+      if (this.ws !== ws) return;
       this.reconnectAttempt = 0;
       this.callbacks.onOpen?.();
     };
 
-    this.ws.onmessage = (e) => {
+    ws.onmessage = (e) => {
+      if (this.ws !== ws) return;
       try {
         const msg = JSON.parse(e.data as string);
         this.handleMessage(msg);
@@ -74,14 +97,16 @@ export class SignalingClient {
       }
     };
 
-    this.ws.onclose = () => {
+    ws.onclose = () => {
+      // Only handle close for the CURRENT WebSocket
+      if (this.ws !== ws) return;
       this.callbacks.onClose?.();
       if (!this.intentionalClose) {
         this.scheduleReconnect();
       }
     };
 
-    this.ws.onerror = () => {
+    ws.onerror = () => {
       // onclose will fire after onerror
     };
   }
