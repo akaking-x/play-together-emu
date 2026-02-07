@@ -4,6 +4,7 @@ import { GameCanvas } from '../components/GameCanvas';
 import { SaveSlotGrid } from '../components/SaveSlotGrid';
 import { KeyMapper } from '../components/KeyMapper';
 import { ConnectionStatus } from '../components/ConnectionStatus';
+import { DinoRunner } from '../components/DinoRunner';
 import { InputMapper, DEFAULT_KEYMAP } from '../emulator/input-mapper';
 import type { EmulatorCore } from '../emulator/core';
 import { saveManager } from '../emulator/save-manager';
@@ -34,10 +35,14 @@ export function GamePage() {
   const peerDisconnected = useRoomStore((s) => s.peerDisconnected);
   const reconnectState = useRoomStore((s) => s.reconnectState);
   const clearReconnectState = useRoomStore((s) => s.clearReconnectState);
+  const gameSynced = useRoomStore((s) => s.gameSynced);
+  const loadedPlayers = useRoomStore((s) => s.loadedPlayers);
   const { leaveRoom } = useRoom();
   const user = useAuthStore((s) => s.user);
   const localUserId = user?.id ?? '';
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [waitingForSync, setWaitingForSync] = useState(false);
+  const sentReadyRef = useRef(false);
 
   const isMultiplayer = !!(room && room.players.length > 1 && gameStarting);
 
@@ -112,6 +117,34 @@ export function GamePage() {
     clearReconnectState();
   }, [reconnectState, emulatorInstance, clearReconnectState]);
 
+  // Multiplayer sync: when emulator is running, notify server and pause until all players ready
+  useEffect(() => {
+    if (!emulatorInstance || !isMultiplayer || !client || sentReadyRef.current) return;
+    if (emulatorInstance.getState() !== 'running') return;
+    sentReadyRef.current = true;
+    emulatorInstance.pause();
+    setWaitingForSync(true);
+    client.sendEmulatorReady();
+  }, [emulatorInstance, isMultiplayer, client]);
+
+  // When game-synced received: countdown then resume
+  useEffect(() => {
+    if (!gameSynced || !emulatorInstance || !isMultiplayer) return;
+    setWaitingForSync(false);
+    setCountdown(3);
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          emulatorInstance.resume();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [gameSynced, emulatorInstance, isMultiplayer]);
+
   // Fetch game info and ROM URL
   useEffect(() => {
     if (!gameId) return;
@@ -177,8 +210,14 @@ export function GamePage() {
   }, [keyMapping]);
 
   const handleEmulatorReady = useCallback(() => {
-    // Emulator is loaded and running
-  }, []);
+    // Emulator is loaded and running — for multiplayer, pause and notify server
+    if (isMultiplayer && client && !sentReadyRef.current && emulatorInstance) {
+      sentReadyRef.current = true;
+      emulatorInstance.pause();
+      setWaitingForSync(true);
+      client.sendEmulatorReady();
+    }
+  }, [isMultiplayer, client, emulatorInstance]);
 
   const handleEmulatorRef = useCallback((emu: EmulatorCore | null) => {
     setEmulatorInstance(emu);
@@ -228,8 +267,25 @@ export function GamePage() {
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>
-        Dang tai game...
+      <div style={{
+        maxWidth: 800,
+        margin: '0 auto',
+        aspectRatio: '4/3',
+        background: '#000',
+        borderRadius: 8,
+        overflow: 'hidden',
+        position: 'relative',
+      }}>
+        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <DinoRunner />
+        </div>
+        <p style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0,
+          color: '#888', fontSize: 12, margin: 0, padding: '8px 0',
+          textAlign: 'center', background: 'rgba(0,0,0,0.7)',
+        }}>
+          Dang tai game... Game se tu dong bat dau khi san sang.
+        </p>
       </div>
     );
   }
@@ -314,6 +370,21 @@ export function GamePage() {
             onReady={handleEmulatorReady}
             onEmulatorRef={handleEmulatorRef}
           />
+          {isMultiplayer && waitingForSync && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.7)', zIndex: 60,
+              flexDirection: 'column', gap: 12,
+            }}>
+              <div style={{ color: '#4ecdc4', fontSize: 20 }}>
+                Doi nguoi choi khac tai game...
+              </div>
+              <div style={{ color: '#888', fontSize: 14 }}>
+                Da san sang: {loadedPlayers.length}/{room?.players.length ?? 0} nguoi choi
+              </div>
+            </div>
+          )}
           {isMultiplayer && peerDisconnected && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex',

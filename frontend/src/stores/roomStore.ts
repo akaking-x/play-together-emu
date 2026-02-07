@@ -12,6 +12,8 @@ interface RoomState {
   gameStarting: boolean;
   peerDisconnected: boolean;
   reconnectState: string | null;
+  gameSynced: boolean;
+  loadedPlayers: string[];
 
   connect: (token: string) => void;
   disconnect: () => void;
@@ -30,6 +32,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   gameStarting: false,
   peerDisconnected: false,
   reconnectState: null,
+  gameSynced: false,
+  loadedPlayers: [],
 
   connect: (token: string) => {
     const existing = get().client;
@@ -68,6 +72,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       onReconnectState: (stateData) => {
         set({ reconnectState: stateData });
       },
+      onPlayerLoaded: (userId) => {
+        set((s) => ({
+          loadedPlayers: s.loadedPlayers.includes(userId) ? s.loadedPlayers : [...s.loadedPlayers, userId],
+        }));
+      },
+      onGameSynced: () => {
+        set({ gameSynced: true });
+      },
       onError: (_code, msg) => {
         set({ error: msg });
         setTimeout(() => set({ error: null }), 5000);
@@ -90,10 +102,12 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       gameStarting: false,
       peerDisconnected: false,
       reconnectState: null,
+      gameSynced: false,
+      loadedPlayers: [],
     });
   },
 
-  clearRoom: () => set({ room: null, messages: [], gameStarting: false, peerDisconnected: false, reconnectState: null }),
+  clearRoom: () => set({ room: null, messages: [], gameStarting: false, peerDisconnected: false, reconnectState: null, gameSynced: false, loadedPlayers: [] }),
 
   clearError: () => set({ error: null }),
 

@@ -122,6 +122,7 @@ export class RoomManager {
       this.disconnectedPlayers.delete(roomId);
     }
     this.reconnectStates.delete(roomId);
+    this.emulatorReady.delete(roomId);
     this.rooms.delete(roomId);
   }
 
@@ -173,6 +174,24 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return false;
     return room.players.length > 0 || (this.disconnectedPlayers.get(roomId)?.size ?? 0) > 0;
+  }
+
+  // Track which players have loaded their emulator
+  private emulatorReady = new Map<string, Set<string>>(); // roomId → set of userIds
+
+  markEmulatorReady(roomId: string, userId: string): boolean {
+    if (!this.emulatorReady.has(roomId)) {
+      this.emulatorReady.set(roomId, new Set());
+    }
+    this.emulatorReady.get(roomId)!.add(userId);
+    // Check if all active players are ready
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+    return room.players.every(p => this.emulatorReady.get(roomId)!.has(p.userId));
+  }
+
+  clearEmulatorReady(roomId: string): void {
+    this.emulatorReady.delete(roomId);
   }
 
   setReconnectState(roomId: string, state: string): void {

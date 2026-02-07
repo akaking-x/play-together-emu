@@ -25,6 +25,8 @@ export interface SignalingCallbacks {
   onPlayerDisconnected?: (userId: string, temporary?: boolean) => void;
   onPlayerReconnected?: (userId: string, displayName: string) => void;
   onReconnectState?: (stateData: string) => void;
+  onPlayerLoaded?: (userId: string, displayName: string) => void;
+  onGameSynced?: () => void;
   onError?: (code: string, message: string) => void;
   onOpen?: () => void;
   onClose?: () => void;
@@ -118,6 +120,12 @@ export class SignalingClient {
       case 'reconnect-state':
         this.callbacks.onReconnectState?.(msg.stateData as string);
         break;
+      case 'player-loaded':
+        this.callbacks.onPlayerLoaded?.(msg.userId as string, msg.displayName as string);
+        break;
+      case 'game-synced':
+        this.callbacks.onGameSynced?.();
+        break;
       case 'error':
         this.callbacks.onError?.(msg.code as string, msg.message as string);
         break;
@@ -199,6 +207,10 @@ export class SignalingClient {
 
   sendRoomSaveState(stateData: string): void {
     this.send({ type: 'room-save-state', stateData });
+  }
+
+  sendEmulatorReady(): void {
+    this.send({ type: 'emulator-ready' });
   }
 
   get connected(): boolean {

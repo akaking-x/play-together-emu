@@ -173,6 +173,25 @@ export class SignalingServer {
         break;
       }
 
+      case 'emulator-ready': {
+        if (!conn.roomId) return;
+        const room = this.rooms.get(conn.roomId);
+        if (!room || room.status !== 'playing') return;
+        const allReady = this.rooms.markEmulatorReady(conn.roomId, conn.user.id);
+        // Notify others about loading progress
+        this.broadcastToRoom(conn.roomId, {
+          type: 'player-loaded',
+          userId: conn.user.id,
+          displayName: conn.user.displayName,
+        });
+        if (allReady) {
+          // All players loaded — start synced gameplay with 3s countdown
+          this.rooms.clearEmulatorReady(conn.roomId);
+          this.broadcastToRoom(conn.roomId, { type: 'game-synced' });
+        }
+        break;
+      }
+
       case 'ready':
         if (conn.roomId) {
           this.rooms.setReady(conn.roomId, conn.user.id, msg.ready);
