@@ -101,15 +101,15 @@ export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef }: Props) {
             inset: 0,
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
             background: '#000',
             borderRadius: 8,
-            gap: 12,
+            overflow: 'hidden',
           }}
         >
-          <DinoRunner />
-          <p style={{ color: '#888', fontSize: 12, margin: 0 }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <DinoRunner />
+          </div>
+          <p style={{ color: '#888', fontSize: 12, margin: 0, padding: '8px 0', textAlign: 'center' }}>
             Dang tai game... Game se tu dong bat dau khi san sang.
           </p>
         </div>

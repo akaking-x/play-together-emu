@@ -1,15 +1,15 @@
 import { useEffect, useRef, useCallback } from 'react';
 
-const CANVAS_W = 600;
-const CANVAS_H = 200;
-const GROUND_Y = 160;
-const GRAVITY = 0.6;
-const JUMP_FORCE = -11;
-const DUCK_HEIGHT = 20;
-const PLAYER_W = 24;
-const PLAYER_H = 40;
-const OBS_MIN_GAP = 200;
-const OBS_MAX_GAP = 400;
+const CANVAS_W = 800;
+const CANVAS_H = 600;
+const GROUND_Y = 480;
+const GRAVITY = 0.8;
+const JUMP_FORCE = -15;
+const DUCK_HEIGHT = 30;
+const PLAYER_W = 36;
+const PLAYER_H = 60;
+const OBS_MIN_GAP = 280;
+const OBS_MAX_GAP = 550;
 
 interface Obstacle {
   x: number;
@@ -43,7 +43,7 @@ export function DinoRunner() {
     s.ducking = false;
     s.obstacles = [];
     s.nextObsDist = 300;
-    s.speed = 4;
+    s.speed = 5;
     s.score = 0;
     s.gameOver = false;
     s.started = true;
@@ -89,19 +89,19 @@ export function DinoRunner() {
       let w: number, h: number, y: number;
       if (type < 0.6) {
         // Ground cactus
-        w = 12 + Math.random() * 16;
-        h = 24 + Math.random() * 24;
+        w = 18 + Math.random() * 24;
+        h = 36 + Math.random() * 36;
         y = GROUND_Y - h;
       } else if (type < 0.85) {
         // Wide low block
-        w = 30 + Math.random() * 20;
-        h = 16;
+        w = 45 + Math.random() * 30;
+        h = 24;
         y = GROUND_Y - h;
       } else {
         // Flying obstacle (must duck)
-        w = 24 + Math.random() * 12;
-        h = 14;
-        y = GROUND_Y - PLAYER_H + 4; // head height — jump won't help, must duck
+        w = 36 + Math.random() * 18;
+        h = 20;
+        y = GROUND_Y - PLAYER_H + 6; // head height — jump won't help, must duck
       }
       s.obstacles.push({ x: CANVAS_W + 20, w, h, y });
       s.nextObsDist = OBS_MIN_GAP + Math.random() * (OBS_MAX_GAP - OBS_MIN_GAP);
@@ -143,7 +143,7 @@ export function DinoRunner() {
       }
 
       // Collision
-      const px = 40;
+      const px = 60;
       const pw = PLAYER_W;
       const ph = s.ducking ? DUCK_HEIGHT : PLAYER_H;
       const py = s.ducking ? GROUND_Y - DUCK_HEIGHT : s.playerY;
@@ -166,7 +166,7 @@ export function DinoRunner() {
       }
 
       s.score++;
-      s.speed = 4 + Math.floor(s.score / 500) * 0.5;
+      s.speed = 5 + Math.floor(s.score / 500) * 0.6;
     }
 
     function draw() {
@@ -196,20 +196,20 @@ export function DinoRunner() {
       const ph = s.ducking ? DUCK_HEIGHT : PLAYER_H;
       const py = s.ducking ? GROUND_Y - DUCK_HEIGHT : s.playerY;
       ctx.fillStyle = s.gameOver ? '#ff4444' : '#4ecdc4';
-      ctx.fillRect(40, py, PLAYER_W, ph);
+      ctx.fillRect(60, py, PLAYER_W, ph);
       // Eye
       ctx.fillStyle = '#111';
-      ctx.fillRect(54, py + 4, 4, 4);
+      ctx.fillRect(80, py + 6, 6, 6);
       // Legs (when not ducking and on ground)
       if (!s.ducking && s.playerY >= GROUND_Y - PLAYER_H) {
         const legFrame = Math.floor(s.score / 5) % 2;
         ctx.fillStyle = s.gameOver ? '#cc3333' : '#3ab8b0';
         if (legFrame === 0) {
-          ctx.fillRect(44, py + ph - 2, 6, 4);
-          ctx.fillRect(54, py + ph - 4, 6, 4);
+          ctx.fillRect(65, py + ph - 3, 9, 6);
+          ctx.fillRect(80, py + ph - 6, 9, 6);
         } else {
-          ctx.fillRect(44, py + ph - 4, 6, 4);
-          ctx.fillRect(54, py + ph - 2, 6, 4);
+          ctx.fillRect(65, py + ph - 6, 9, 6);
+          ctx.fillRect(80, py + ph - 3, 9, 6);
         }
       }
 
@@ -219,34 +219,34 @@ export function DinoRunner() {
         ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
         // Highlight
         ctx.fillStyle = '#ff8c5a';
-        ctx.fillRect(obs.x + 2, obs.y + 2, obs.w - 4, 3);
+        ctx.fillRect(obs.x + 3, obs.y + 3, obs.w - 6, 4);
       }
 
       // Score
       ctx.fillStyle = '#888';
-      ctx.font = '12px monospace';
+      ctx.font = '16px monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`HI ${String(s.highScore).padStart(5, '0')}  ${String(s.score).padStart(5, '0')}`, CANVAS_W - 10, 20);
+      ctx.fillText(`HI ${String(s.highScore).padStart(5, '0')}  ${String(s.score).padStart(5, '0')}`, CANVAS_W - 16, 30);
 
       // Prompt text
       if (!s.started) {
         ctx.fillStyle = '#aaa';
-        ctx.font = '14px monospace';
+        ctx.font = '20px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('Nhan SPACE de bat dau', CANVAS_W / 2, CANVAS_H / 2 - 10);
+        ctx.fillText('Nhan SPACE de bat dau', CANVAS_W / 2, CANVAS_H / 2 - 14);
         ctx.fillStyle = '#666';
-        ctx.font = '11px monospace';
-        ctx.fillText('UP = nhay  |  DOWN = cui', CANVAS_W / 2, CANVAS_H / 2 + 10);
+        ctx.font = '15px monospace';
+        ctx.fillText('UP = nhay  |  DOWN = cui', CANVAS_W / 2, CANVAS_H / 2 + 14);
       }
 
       if (s.gameOver) {
         ctx.fillStyle = '#ff4444';
-        ctx.font = 'bold 18px monospace';
+        ctx.font = 'bold 24px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', CANVAS_W / 2, CANVAS_H / 2 - 10);
+        ctx.fillText('GAME OVER', CANVAS_W / 2, CANVAS_H / 2 - 14);
         ctx.fillStyle = '#888';
-        ctx.font = '12px monospace';
-        ctx.fillText('Nhan SPACE de choi lai', CANVAS_W / 2, CANVAS_H / 2 + 12);
+        ctx.font = '16px monospace';
+        ctx.fillText('Nhan SPACE de choi lai', CANVAS_W / 2, CANVAS_H / 2 + 16);
       }
     }
 
@@ -274,8 +274,8 @@ export function DinoRunner() {
       height={CANVAS_H}
       style={{
         display: 'block',
-        margin: '0 auto',
-        maxWidth: '100%',
+        width: '100%',
+        height: '100%',
         imageRendering: 'pixelated',
         outline: 'none',
       }}
