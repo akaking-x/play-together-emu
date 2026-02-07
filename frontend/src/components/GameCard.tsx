@@ -16,6 +16,7 @@ export function GameCard({ game }: Props) {
             src={`/api/games/covers/${game.coverPath.replace('covers/', '')}`}
             alt={game.title}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (
           <div className="game-card-placeholder">
