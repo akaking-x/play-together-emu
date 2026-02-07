@@ -33,6 +33,7 @@ export function GamePage() {
 
   // Multiplayer state from stores
   const { room, client, gameStarting } = useRoomStore();
+  const connected = useRoomStore((s) => s.connected);
   const peerDisconnected = useRoomStore((s) => s.peerDisconnected);
   const reconnectState = useRoomStore((s) => s.reconnectState);
   const clearReconnectState = useRoomStore((s) => s.clearReconnectState);
@@ -156,12 +157,13 @@ export function GamePage() {
   }, [emulatorInstance, isMultiplayer, client]);
 
   // Guest also sends emulator-ready immediately (no emulator to wait for)
+  // Must wait for WebSocket to be connected so the message isn't silently dropped
   useEffect(() => {
-    if (!isMultiplayer || isHost || !client || sentReadyRef.current) return;
+    if (!isMultiplayer || isHost || !client || sentReadyRef.current || !connected) return;
     sentReadyRef.current = true;
     setWaitingForSync(true);
     client.sendEmulatorReady();
-  }, [isMultiplayer, isHost, client]);
+  }, [isMultiplayer, isHost, client, connected]);
 
   // When game-synced received: countdown then resume (host resumes emulator, guest just clears overlay)
   useEffect(() => {
@@ -350,7 +352,10 @@ export function GamePage() {
   }
 
   // Determine if guest should see video or emulator
-  const showGuestVideo = isMultiplayer && !isHost;
+  // If gameStarting is true and user is not the host, always show guest video
+  // (even before room data loads, to prevent EmulatorJS from loading on guest)
+  const showGuestVideo = isMultiplayer && !isHost
+    || (gameStarting && room && room.hostId !== localUserId);
 
   return (
     <div>

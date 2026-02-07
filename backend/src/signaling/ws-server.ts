@@ -176,6 +176,13 @@ export class SignalingServer {
           this.send(conn.ws, { type: 'error', code: 'ROOM_CLOSED', message: 'Room is closed' });
           return;
         }
+        // Player still in room (WebSocket reconnected without full disconnect)
+        const existingInPlaying = room.players.find(p => p.userId === conn.user.id);
+        if (existingInPlaying) {
+          conn.roomId = room.id;
+          this.broadcastRoom(room.id);
+          break;
+        }
         if (!this.rooms.isReserved(room.id, conn.user.id)) {
           this.send(conn.ws, { type: 'error', code: 'NO_RESERVATION', message: 'No reservation found' });
           return;

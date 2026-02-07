@@ -29,8 +29,11 @@ export class PeerConnection {
     };
 
     // Handle incoming video tracks from remote peer
+    // When host uses addTransceiver without a stream, e.streams is empty —
+    // create a MediaStream from the track so the guest can display it.
     this.pc.ontrack = (e) => {
-      if (e.streams[0]) this.callbacks.onTrack?.(e.streams[0]);
+      const stream = e.streams[0] || new MediaStream([e.track]);
+      this.callbacks.onTrack?.(stream);
     };
   }
 

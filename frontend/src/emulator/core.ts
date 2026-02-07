@@ -170,12 +170,17 @@ export class EmulatorCore {
     }
   }
 
+  // Map from PS1Button bit position to EmulatorJS (RetroArch) button index:
+  // RetroArch: B=0, Y=1, SELECT=2, START=3, UP=4, DOWN=5, LEFT=6, RIGHT=7, A=8, X=9, L=10, R=11, L2=12, R2=13
+  // PS1Button: UP=0, DOWN=1, LEFT=2, RIGHT=3, CROSS=4, CIRCLE=5, SQUARE=6, TRIANGLE=7, L1=8, R1=9, L2=10, R2=11, START=12, SELECT=13
+  private static readonly PS1_TO_EJS: readonly number[] = [4, 5, 6, 7, 0, 8, 1, 9, 10, 11, 12, 13, 3, 2] as const;
+
   setInput(port: number, buttons: number) {
     if (!this.instance) return;
     const gm = this.instance.gameManager;
     for (let i = 0; i < 14; i++) {
       const pressed = (buttons & (1 << i)) !== 0 ? 1 : 0;
-      gm.simulateInput(port, i, pressed);
+      gm.simulateInput(port, EmulatorCore.PS1_TO_EJS[i]!, pressed);
     }
   }
 
