@@ -179,6 +179,10 @@ export class EmulatorCore {
     }
   }
 
+  getCanvas(): HTMLCanvasElement | null {
+    return this.instance?.elements.canvas ?? null;
+  }
+
   getFrameCount(): number {
     return this.frameCount;
   }

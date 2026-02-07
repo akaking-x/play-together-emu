@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GameCanvas } from '../components/GameCanvas';
+import { GuestVideoPlayer } from '../components/GuestVideoPlayer';
 import { SaveSlotGrid } from '../components/SaveSlotGrid';
 import { KeyMapper } from '../components/KeyMapper';
 import { ConnectionStatus } from '../components/ConnectionStatus';
@@ -45,25 +46,32 @@ export function GamePage() {
   const sentReadyRef = useRef(false);
 
   const isMultiplayer = !!(room && room.players.length > 1 && gameStarting);
+  const isHost = !!(room && room.hostId === localUserId);
+
+  // Remote video stream for guest
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const streamCapturedRef = useRef(false);
 
   // Bridge client to a RefObject for useNetplay
   const clientRef = useRef(client);
   clientRef.current = client;
 
   // WebRTC peer connections
-  const { peerInfos, sendToAll, setOnData } = useNetplay({
+  const { peerInfos, sendToAll, setOnData, addStreamToAll } = useNetplay({
     signalingClient: clientRef,
     localUserId,
     players: room?.players ?? [],
     active: isMultiplayer,
+    onTrack: (stream) => setRemoteStream(stream),
   });
 
-  // 60Hz multiplayer input sync loop
+  // 60Hz multiplayer input loop
   useGameLoop({
-    emulator: emulatorInstance,
+    emulator: isHost ? emulatorInstance : null,
     inputMapper: inputMapperRef.current,
     room,
     localUserId,
+    isHost,
     sendToAll,
     setOnData,
     active: isMultiplayer,
@@ -76,9 +84,19 @@ export function GamePage() {
     };
   }, [leaveRoom]);
 
-  // On peer disconnect: pause emulator + save state + send to server
+  // Host: capture canvas stream and send to guests after game-synced
   useEffect(() => {
-    if (!peerDisconnected || !emulatorInstance || !isMultiplayer) return;
+    if (!isHost || !isMultiplayer || !gameSynced || !emulatorInstance || streamCapturedRef.current) return;
+    const canvas = emulatorInstance.getCanvas();
+    if (!canvas) return;
+    streamCapturedRef.current = true;
+    const stream = canvas.captureStream(60);
+    addStreamToAll(stream);
+  }, [isHost, isMultiplayer, gameSynced, emulatorInstance, addStreamToAll]);
+
+  // On peer disconnect: pause emulator + save state + send to server (host only)
+  useEffect(() => {
+    if (!peerDisconnected || !emulatorInstance || !isMultiplayer || !isHost) return;
     emulatorInstance.pause();
     const stateData = emulatorInstance.saveState();
     if (stateData && client) {
@@ -86,13 +104,12 @@ export function GamePage() {
       const base64 = btoa(binary);
       client.sendRoomSaveState(base64);
     }
-  }, [peerDisconnected, emulatorInstance, isMultiplayer, client]);
+  }, [peerDisconnected, emulatorInstance, isMultiplayer, isHost, client]);
 
-  // On peer reconnect: 3-second countdown then resume
+  // On peer reconnect: 3-second countdown then resume (host only)
   useEffect(() => {
-    if (peerDisconnected || !emulatorInstance || !isMultiplayer) return;
+    if (peerDisconnected || !emulatorInstance || !isMultiplayer || !isHost) return;
     if (emulatorInstance.getState() !== 'paused') return;
-    // Start countdown
     setCountdown(3);
     const interval = setInterval(() => {
       setCountdown((prev) => {
@@ -105,17 +122,17 @@ export function GamePage() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [peerDisconnected, emulatorInstance, isMultiplayer]);
+  }, [peerDisconnected, emulatorInstance, isMultiplayer, isHost]);
 
-  // On receiving reconnect state (I am the rejoining player): load state
+  // On receiving reconnect state (host only): load state
   useEffect(() => {
-    if (!reconnectState || !emulatorInstance) return;
+    if (!reconnectState || !emulatorInstance || !isHost) return;
     const binary = atob(reconnectState);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     emulatorInstance.loadState(bytes);
     clearReconnectState();
-  }, [reconnectState, emulatorInstance, clearReconnectState]);
+  }, [reconnectState, emulatorInstance, isHost, clearReconnectState]);
 
   // Multiplayer sync: when emulator is running, notify server and pause until all players ready
   useEffect(() => {
@@ -127,23 +144,33 @@ export function GamePage() {
     client.sendEmulatorReady();
   }, [emulatorInstance, isMultiplayer, client]);
 
-  // When game-synced received: countdown then resume
+  // Guest also sends emulator-ready immediately (no emulator to wait for)
   useEffect(() => {
-    if (!gameSynced || !emulatorInstance || !isMultiplayer) return;
+    if (!isMultiplayer || isHost || !client || sentReadyRef.current) return;
+    sentReadyRef.current = true;
+    setWaitingForSync(true);
+    client.sendEmulatorReady();
+  }, [isMultiplayer, isHost, client]);
+
+  // When game-synced received: countdown then resume (host resumes emulator, guest just clears overlay)
+  useEffect(() => {
+    if (!gameSynced || !isMultiplayer) return;
     setWaitingForSync(false);
     setCountdown(3);
     const interval = setInterval(() => {
       setCountdown((prev) => {
         if (prev === null || prev <= 1) {
           clearInterval(interval);
-          emulatorInstance.resume();
+          if (isHost && emulatorInstance) {
+            emulatorInstance.resume();
+          }
           return null;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [gameSynced, emulatorInstance, isMultiplayer]);
+  }, [gameSynced, isMultiplayer, isHost, emulatorInstance]);
 
   // Fetch game info and ROM URL
   useEffect(() => {
@@ -155,8 +182,8 @@ export function GamePage() {
         const gameData = gameRes.data as Game;
         setGame(gameData);
 
-        // Apply split-screen cheats BEFORE emulator starts
-        if (gameData.splitScreenCheats && isMultiplayer && room) {
+        // Apply split-screen cheats BEFORE emulator starts (host only)
+        if (isHost && gameData.splitScreenCheats && isMultiplayer && room) {
           const localPlayer = room.players.find(p => p.userId === localUserId);
           if (localPlayer) {
             const playerNum = getPlayerNumber(localPlayer.controllerPort);
@@ -195,7 +222,7 @@ export function GamePage() {
     };
   }, [gameId]);
 
-  // Initialize input mapper
+  // Initialize input mapper (both host and guest need this)
   useEffect(() => {
     if (inputMapperRef.current) {
       inputMapperRef.current.updateKeyMap(keyMapping);
@@ -210,7 +237,6 @@ export function GamePage() {
   }, [keyMapping]);
 
   const handleEmulatorReady = useCallback(() => {
-    // Emulator is loaded and running — for multiplayer, pause and notify server
     if (isMultiplayer && client && !sentReadyRef.current && emulatorInstance) {
       sentReadyRef.current = true;
       emulatorInstance.pause();
@@ -312,27 +338,40 @@ export function GamePage() {
     );
   }
 
+  // Determine if guest should see video or emulator
+  const showGuestVideo = isMultiplayer && !isHost;
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>{game.title}</h2>
-          <span style={{ color: '#666', fontSize: 13 }}>{game.region} | {game.genre}</span>
+          <span style={{ color: '#666', fontSize: 13 }}>
+            {game.region} | {game.genre}
+            {isMultiplayer && (
+              <span style={{ marginLeft: 8, color: isHost ? '#4ecdc4' : '#ffa500' }}>
+                {isHost ? '(Host)' : '(Guest)'}
+              </span>
+            )}
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={() => { setShowSaves(s => !s); setShowKeyMapper(false); }}
-            style={{
-              padding: '6px 14px',
-              background: showSaves ? '#4a9eff' : '#333',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 4,
-              cursor: 'pointer',
-            }}
-          >
-            Save States
-          </button>
+          {/* Save states only available for host (they have the emulator) */}
+          {(!isMultiplayer || isHost) && (
+            <button
+              onClick={() => { setShowSaves(s => !s); setShowKeyMapper(false); }}
+              style={{
+                padding: '6px 14px',
+                background: showSaves ? '#4a9eff' : '#333',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+              }}
+            >
+              Save States
+            </button>
+          )}
           <button
             onClick={() => { setShowKeyMapper(s => !s); setShowSaves(false); }}
             style={{
@@ -364,12 +403,17 @@ export function GamePage() {
 
       <div style={{ display: 'flex', gap: 20 }}>
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
-          <GameCanvas
-            romUrl={romUrl}
-            biosUrl="/api/games/bios/scph5501.bin"
-            onReady={handleEmulatorReady}
-            onEmulatorRef={handleEmulatorRef}
-          />
+          {showGuestVideo ? (
+            <GuestVideoPlayer stream={remoteStream} />
+          ) : (
+            <GameCanvas
+              romUrl={romUrl}
+              biosUrl="/api/games/bios/scph5501.bin"
+              onReady={handleEmulatorReady}
+              onEmulatorRef={handleEmulatorRef}
+            />
+          )}
+
           {isMultiplayer && waitingForSync && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex',
@@ -378,14 +422,14 @@ export function GamePage() {
               flexDirection: 'column', gap: 12,
             }}>
               <div style={{ color: '#4ecdc4', fontSize: 20 }}>
-                Doi nguoi choi khac tai game...
+                {isHost ? 'Doi nguoi choi khac tai game...' : 'Doi host tai game...'}
               </div>
               <div style={{ color: '#888', fontSize: 14 }}>
                 Da san sang: {loadedPlayers.length}/{room?.players.length ?? 0} nguoi choi
               </div>
             </div>
           )}
-          {isMultiplayer && peerDisconnected && (
+          {isMultiplayer && isHost && peerDisconnected && (
             <div style={{
               position: 'absolute', inset: 0, display: 'flex',
               alignItems: 'center', justifyContent: 'center',

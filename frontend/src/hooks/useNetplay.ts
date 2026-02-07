@@ -8,16 +8,19 @@ interface UseNetplayOptions {
   localUserId: string;
   players: Array<{ userId: string; displayName: string }>;
   active: boolean; // true when game is starting
+  onTrack?: (stream: MediaStream) => void;
 }
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
 ];
 
-export function useNetplay({ signalingClient, localUserId, players, active }: UseNetplayOptions) {
+export function useNetplay({ signalingClient, localUserId, players, active, onTrack }: UseNetplayOptions) {
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const [peerInfos, setPeerInfos] = useState<PeerInfo[]>([]);
   const onDataRef = useRef<((peerId: string, data: ArrayBuffer) => void) | null>(null);
+  const onTrackRef = useRef(onTrack);
+  onTrackRef.current = onTrack;
 
   const updatePeerInfo = useCallback((peerId: string, state: PeerState, latencyMs: number, displayName: string) => {
     setPeerInfos((prev) => {
@@ -47,9 +50,13 @@ export function useNetplay({ signalingClient, localUserId, players, active }: Us
       const peer = new PeerConnection(
         rp.userId,
         ICE_SERVERS,
-        (state) => updatePeerInfo(rp.userId, state, peer.latencyMs, rp.displayName),
-        (data) => onDataRef.current?.(rp.userId, data),
-        (ms) => updatePeerInfo(rp.userId, peer.state, ms, rp.displayName),
+        {
+          onState: (state) => updatePeerInfo(rp.userId, state, peer.latencyMs, rp.displayName),
+          onData: (data) => onDataRef.current?.(rp.userId, data),
+          onLatency: (ms) => updatePeerInfo(rp.userId, peer.state, ms, rp.displayName),
+          onTrack: (stream) => onTrackRef.current?.(stream),
+          onNegotiationNeeded: (desc) => client.sendSignal(rp.userId, desc),
+        },
       );
 
       peer.onICE((candidate) => {
@@ -74,9 +81,13 @@ export function useNetplay({ signalingClient, localUserId, players, active }: Us
         peer = new PeerConnection(
           fromId,
           ICE_SERVERS,
-          (state) => updatePeerInfo(fromId, state, peer!.latencyMs, rp?.displayName ?? fromId),
-          (data) => onDataRef.current?.(fromId, data),
-          (ms) => updatePeerInfo(fromId, peer!.state, ms, rp?.displayName ?? fromId),
+          {
+            onState: (state) => updatePeerInfo(fromId, state, peer!.latencyMs, rp?.displayName ?? fromId),
+            onData: (data) => onDataRef.current?.(fromId, data),
+            onLatency: (ms) => updatePeerInfo(fromId, peer!.state, ms, rp?.displayName ?? fromId),
+            onTrack: (stream) => onTrackRef.current?.(stream),
+            onNegotiationNeeded: (desc) => client.sendSignal(fromId, desc),
+          },
         );
         peer.onICE((candidate) => {
           client.sendICE(fromId, candidate.toJSON());
@@ -138,11 +149,18 @@ export function useNetplay({ signalingClient, localUserId, players, active }: Us
     onDataRef.current = cb;
   }, []);
 
+  const addStreamToAll = useCallback((stream: MediaStream) => {
+    for (const peer of peersRef.current.values()) {
+      peer.addStream(stream);
+    }
+  }, []);
+
   return {
     peerInfos,
     sendToAll,
     sendToPeer,
     setOnData,
+    addStreamToAll,
     peers: peersRef,
   };
 }

@@ -1,5 +1,13 @@
 export type PeerState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed';
 
+export interface PeerCallbacks {
+  onState: (s: PeerState) => void;
+  onData: (data: ArrayBuffer) => void;
+  onLatency: (ms: number) => void;
+  onTrack?: (stream: MediaStream) => void;
+  onNegotiationNeeded?: (desc: RTCSessionDescription) => void;
+}
+
 export class PeerConnection {
   private pc: RTCPeerConnection;
   private dc: RTCDataChannel | null = null;
@@ -11,9 +19,7 @@ export class PeerConnection {
   constructor(
     public readonly peerId: string,
     private readonly _iceServers: RTCIceServer[],
-    private onState: (s: PeerState) => void,
-    private onData: (data: ArrayBuffer) => void,
-    private onLatency: (ms: number) => void,
+    private callbacks: PeerCallbacks,
   ) {
     this.pc = new RTCPeerConnection({ iceServers: this._iceServers, iceCandidatePoolSize: 2 });
     this.pc.oniceconnectionstatechange = () => {
@@ -21,6 +27,20 @@ export class PeerConnection {
       if (s === 'connected' || s === 'completed') this.setState('connected');
       else if (s === 'disconnected') this.setState('disconnected');
       else if (s === 'failed') this.setState('failed');
+    };
+
+    // Handle incoming video tracks from remote peer
+    this.pc.ontrack = (e) => {
+      if (e.streams[0]) this.callbacks.onTrack?.(e.streams[0]);
+    };
+
+    // Handle renegotiation (triggered when host adds video track after initial connection)
+    this.pc.onnegotiationneeded = async () => {
+      const offer = await this.pc.createOffer();
+      await this.pc.setLocalDescription(offer);
+      if (this.pc.localDescription) {
+        this.callbacks.onNegotiationNeeded?.(this.pc.localDescription);
+      }
     };
   }
 
@@ -77,7 +97,7 @@ export class PeerConnection {
         this.handlePing(d);
         return;
       }
-      this.onData(d);
+      this.callbacks.onData(d);
     };
   }
 
@@ -105,14 +125,20 @@ export class PeerConnection {
     } else {
       // Pong received -> calculate latency
       this.latencyMs = Math.round((performance.now() - v.getFloat64(1, true)) / 2);
-      this.onLatency(this.latencyMs);
+      this.callbacks.onLatency(this.latencyMs);
     }
   }
 
   private setState(s: PeerState): void {
     if (this.state === s) return;
     this.state = s;
-    this.onState(s);
+    this.callbacks.onState(s);
+  }
+
+  addStream(stream: MediaStream): void {
+    for (const track of stream.getTracks()) {
+      this.pc.addTrack(track, stream);
+    }
   }
 
   destroy(): void {
