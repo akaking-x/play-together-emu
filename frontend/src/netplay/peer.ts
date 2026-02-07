@@ -136,10 +136,19 @@ export class PeerConnection {
   /** Replace the placeholder video track with the real canvas stream track */
   replaceVideoTrack(stream: MediaStream): void {
     const videoTrack = stream.getVideoTracks()[0];
-    if (!videoTrack) return;
-    const sender = this.pc.getSenders().find(s => !s.track || s.track.kind === 'video');
+    if (!videoTrack) {
+      console.warn('[peer] replaceVideoTrack: no video track in stream');
+      return;
+    }
+    const senders = this.pc.getSenders();
+    const sender = senders.find(s => !s.track || s.track.kind === 'video');
     if (sender) {
-      sender.replaceTrack(videoTrack);
+      console.log('[peer] replaceVideoTrack: replacing track on sender, track state:', videoTrack.readyState);
+      sender.replaceTrack(videoTrack).catch(err => {
+        console.error('[peer] replaceTrack failed:', err);
+      });
+    } else {
+      console.warn('[peer] replaceVideoTrack: no video sender found among', senders.length, 'senders');
     }
   }
 

@@ -46,6 +46,7 @@ export class EmulatorCore {
   private callbacks: EmulatorCallbacks;
   private frameCount = 0;
   private animFrameId: number | null = null;
+  private origGetContext: typeof HTMLCanvasElement.prototype.getContext | null = null;
 
   constructor(callbacks: EmulatorCallbacks = {}) {
     this.callbacks = callbacks;
@@ -68,6 +69,10 @@ export class EmulatorCore {
     this.setState('loading');
 
     try {
+      // Force preserveDrawingBuffer on WebGL contexts so captureStream() works.
+      // Without this, captureStream on a WebGL canvas produces black frames.
+      this.patchWebGLContext();
+
       // Configure EmulatorJS globals before loading the script
       window.EJS_player = `#${containerId}`;
       window.EJS_core = 'psx';
@@ -103,6 +108,29 @@ export class EmulatorCore {
       this.setState('error');
       this.callbacks.onError?.(msg);
       throw err;
+    }
+  }
+
+  private patchWebGLContext(): void {
+    if (this.origGetContext) return; // Already patched
+    const orig = HTMLCanvasElement.prototype.getContext;
+    this.origGetContext = orig;
+    HTMLCanvasElement.prototype.getContext = function (
+      this: HTMLCanvasElement,
+      type: string,
+      attrs?: any,
+    ): any {
+      if (type === 'webgl' || type === 'webgl2') {
+        attrs = { ...attrs, preserveDrawingBuffer: true };
+      }
+      return orig.call(this, type, attrs);
+    } as any;
+  }
+
+  private unpatchWebGLContext(): void {
+    if (this.origGetContext) {
+      HTMLCanvasElement.prototype.getContext = this.origGetContext;
+      this.origGetContext = null;
     }
   }
 
@@ -197,6 +225,9 @@ export class EmulatorCore {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+
+    // Restore original getContext
+    this.unpatchWebGLContext();
 
     // Clean up EmulatorJS globals
     delete window.EJS_onGameStart;

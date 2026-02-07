@@ -51,6 +51,7 @@ export function GuestVideoPlayer({ stream }: Props) {
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />
           <button

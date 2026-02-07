@@ -88,13 +88,39 @@ export function GamePage() {
   }, [leaveRoom]);
 
   // Host: capture canvas stream and send to guests after game-synced
+  // Retry if canvas isn't available yet (EmulatorJS creates it asynchronously)
   useEffect(() => {
     if (!isHost || !isMultiplayer || !gameSynced || !emulatorInstance || streamCapturedRef.current) return;
-    const canvas = emulatorInstance.getCanvas();
-    if (!canvas) return;
-    streamCapturedRef.current = true;
-    const stream = canvas.captureStream(60);
-    replaceTrackOnAll(stream);
+
+    const tryCapture = () => {
+      const canvas = emulatorInstance.getCanvas();
+      if (!canvas) {
+        console.log('[stream] Canvas not ready, retrying...');
+        return false;
+      }
+      streamCapturedRef.current = true;
+      console.log('[stream] Capturing canvas stream:', canvas.width, 'x', canvas.height);
+      const stream = canvas.captureStream(60);
+      console.log('[stream] Stream tracks:', stream.getVideoTracks().length, 'video,', stream.getAudioTracks().length, 'audio');
+      replaceTrackOnAll(stream);
+      return true;
+    };
+
+    if (tryCapture()) return;
+
+    // Retry every 500ms for up to 10 seconds
+    const interval = setInterval(() => {
+      if (tryCapture()) clearInterval(interval);
+    }, 500);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      console.error('[stream] Canvas capture timed out after 10s');
+    }, 10000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
   }, [isHost, isMultiplayer, gameSynced, emulatorInstance, replaceTrackOnAll]);
 
   // Track if we were previously disconnected (for reconnect countdown)
