@@ -94,7 +94,7 @@ export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef }: Props) {
         </button>
       )}
 
-      {state === 'loading' && (
+      {(state === 'idle' || state === 'loading') && (
         <div
           style={{
             position: 'absolute',
@@ -104,9 +104,10 @@ export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef }: Props) {
             background: '#000',
             borderRadius: 8,
             overflow: 'hidden',
+            zIndex: 50,
           }}
         >
-          <div style={{ flex: 1, position: 'relative' }}>
+          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
             <DinoRunner />
           </div>
           <p style={{ color: '#888', fontSize: 12, margin: 0, padding: '8px 0', textAlign: 'center' }}>
@@ -123,12 +124,13 @@ export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef }: Props) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'rgba(0,0,0,0.8)',
+            background: 'rgba(0,0,0,0.9)',
             borderRadius: 8,
             color: '#ff4444',
             fontSize: 16,
             padding: 20,
             textAlign: 'center',
+            zIndex: 50,
           }}
         >
           Loi: {error || 'Khong the tai emulator'}
