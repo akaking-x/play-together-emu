@@ -26,6 +26,7 @@ export function RoomPage() {
     leaveRoom,
     setReady,
     startGame,
+    transferHost,
     sendChat,
   } = useRoom();
 
@@ -184,6 +185,8 @@ export function RoomPage() {
                 port={s.port}
                 isHost={s.player?.userId === room.hostId}
                 isCurrentUser={s.player?.userId === user?.id}
+                canTransferHost={isHost}
+                onTransferHost={transferHost}
               />
             ))}
           </div>

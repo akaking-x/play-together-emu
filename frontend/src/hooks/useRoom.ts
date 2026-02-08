@@ -53,6 +53,10 @@ export function useRoom() {
     client?.startGame();
   }, [client]);
 
+  const transferHost = useCallback((targetUserId: string) => {
+    client?.transferHost(targetUserId);
+  }, [client]);
+
   const sendChat = useCallback((message: string) => {
     client?.sendChat(message);
   }, [client]);
@@ -79,6 +83,7 @@ export function useRoom() {
     leaveRoom,
     setReady,
     startGame,
+    transferHost,
     sendChat,
   };
 }

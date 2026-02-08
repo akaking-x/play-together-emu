@@ -215,6 +215,10 @@ export class SignalingClient {
     this.send({ type: 'start-game' });
   }
 
+  transferHost(targetUserId: string): void {
+    this.send({ type: 'transfer-host', targetUserId });
+  }
+
   sendSignal(targetId: string, sdp: RTCSessionDescriptionInit): void {
     this.send({ type: 'signal', targetId, sdp });
   }

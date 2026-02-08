@@ -90,9 +90,10 @@ export class RoomManager {
     const room = this.rooms.get(roomId);
     if (!room) return;
     room.players = room.players.filter(p => p.userId !== userId);
-    // Transfer host if host left
+    // Transfer host if host left — new host gets port 0
     if (room.hostId === userId && room.players.length > 0) {
       room.hostId = room.players[0].userId;
+      room.players[0].controllerPort = 0;
     }
   }
 
@@ -104,12 +105,27 @@ export class RoomManager {
 
   nextPort(roomId: string): number {
     const room = this.rooms.get(roomId);
-    if (!room) return 0;
+    if (!room) return 1;
     const usedPorts = new Set(room.players.map(p => p.controllerPort));
-    for (let i = 0; i < 8; i++) {
+    // Port 0 is reserved for host — guests start from port 1
+    for (let i = 1; i < 8; i++) {
       if (!usedPorts.has(i)) return i;
     }
-    return 0;
+    return 1;
+  }
+
+  transferHost(roomId: string, newHostId: string): boolean {
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+    const newHost = room.players.find(p => p.userId === newHostId);
+    const oldHost = room.players.find(p => p.userId === room.hostId);
+    if (!newHost || !oldHost) return false;
+    // Swap controller ports: new host gets P1 (port 0), old host takes new host's port
+    const oldHostPort = oldHost.controllerPort;
+    oldHost.controllerPort = newHost.controllerPort;
+    newHost.controllerPort = oldHostPort;
+    room.hostId = newHostId;
+    return true;
   }
 
   delete(roomId: string) {

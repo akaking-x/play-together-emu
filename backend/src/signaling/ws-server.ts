@@ -254,6 +254,18 @@ export class SignalingServer {
         break;
       }
 
+      case 'transfer-host': {
+        if (!conn.roomId) return;
+        const room = this.rooms.get(conn.roomId);
+        if (!room || room.hostId !== conn.user.id) return;
+        if (!msg.targetUserId) return;
+        const ok = this.rooms.transferHost(conn.roomId, msg.targetUserId);
+        if (ok) {
+          this.broadcastRoom(conn.roomId);
+        }
+        break;
+      }
+
       case 'ready':
         if (conn.roomId) {
           this.rooms.setReady(conn.roomId, conn.user.id, msg.ready);
@@ -324,9 +336,10 @@ export class SignalingServer {
     const timer = setTimeout(() => {
       // Reservation expired — permanent removal
       this.rooms.clearReservation(roomId, conn.user.id);
-      // If host timed out, transfer host to next active player
+      // If host timed out, transfer host to next active player (port 0)
       if (isHost && room.players.length > 0) {
         room.hostId = room.players[0].userId;
+        room.players[0].controllerPort = 0;
       }
       // Broadcast permanent leave
       this.broadcastToRoom(roomId, {

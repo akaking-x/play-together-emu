@@ -10,9 +10,11 @@ interface Props {
   port: number;
   isHost: boolean;
   isCurrentUser: boolean;
+  canTransferHost?: boolean;
+  onTransferHost?: (userId: string) => void;
 }
 
-export function PlayerSlot({ player, port, isHost, isCurrentUser }: Props) {
+export function PlayerSlot({ player, port, isHost, isCurrentUser, canTransferHost, onTransferHost }: Props) {
   return (
     <div style={{
       border: `1px solid ${player ? (player.isReady ? '#4ecdc4' : '#ff6b35') : '#333'}`,
@@ -66,6 +68,23 @@ export function PlayerSlot({ player, port, isHost, isCurrentUser }: Props) {
           }}>
             {player.isReady ? 'San sang' : 'Chua san sang'}
           </div>
+          {canTransferHost && !isHost && onTransferHost && (
+            <button
+              onClick={() => onTransferHost(player.userId)}
+              style={{
+                marginTop: 4,
+                padding: '2px 8px',
+                fontSize: 10,
+                background: 'transparent',
+                color: '#ff9800',
+                border: '1px solid #ff9800',
+                borderRadius: 3,
+                cursor: 'pointer',
+              }}
+            >
+              Chuyen host
+            </button>
+          )}
         </>
       ) : (
         <div style={{ color: '#555', fontSize: 13 }}>
