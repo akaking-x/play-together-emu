@@ -45,6 +45,7 @@ interface EmulatorJSInstance {
   };
   pause: () => void;
   play: () => void;
+  on?: (event: string, callback: () => void) => void;
   elements: {
     canvas: HTMLCanvasElement;
   };
@@ -109,23 +110,40 @@ export class EmulatorCore {
         this.startFrameLoop();
       };
 
-      // Check if EmulatorJS script is already loaded in the DOM
-      const existingScript = document.querySelector(
-        'script[src*="loader.js"]'
-      );
-      if (existingScript) {
-        // Remove old script and related elements so EmulatorJS reinitializes
-        existingScript.remove();
+      // If EmulatorJS class is already loaded (from a previous game session),
+      // create a new instance directly instead of re-loading the script
+      // (re-loading causes "EJS_STORAGE has already been declared" error)
+      const EJSClass = (window as any).EmulatorJS;
+      if (EJSClass) {
+        const config = this.buildEJSConfig();
+        window.EJS_emulator = new EJSClass(window.EJS_player, config);
+        if (typeof window.EJS_onGameStart === 'function') {
+          window.EJS_emulator!.on?.('start', window.EJS_onGameStart);
+        }
+      } else {
+        // First load — use loader.js to load emulator.min.js + CSS
+        await this.loadScript('/emulatorjs/data/loader.js');
       }
-
-      // Load EmulatorJS loader script (self-hosted)
-      await this.loadScript('/emulatorjs/data/loader.js');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to init emulator';
       this.setState('error');
       this.callbacks.onError?.(msg);
       throw err;
     }
+  }
+
+  private buildEJSConfig(): Record<string, any> {
+    const scriptPath = window.EJS_pathtodata || '/emulatorjs/data/';
+    return {
+      gameUrl: window.EJS_gameUrl,
+      dataPath: scriptPath,
+      system: window.EJS_core,
+      biosUrl: window.EJS_biosUrl,
+      startOnLoad: window.EJS_startOnLoaded,
+      netplayUrl: (window as any).EJS_netplayServer,
+      gameId: (window as any).EJS_gameID,
+      volume: 0.5,
+    };
   }
 
   private patchWebGLContext(): void {
@@ -266,10 +284,6 @@ export class EmulatorCore {
     delete window.EJS_gameID;
     delete window.EJS_netplayServer;
     delete window.EJS_netplayICEServers;
-
-    // Remove EmulatorJS loader script so it can be re-loaded on next game
-    const loaderScript = document.querySelector('script[src*="loader.js"]');
-    if (loaderScript) loaderScript.remove();
 
     this.instance = null;
     this.frameCount = 0;
