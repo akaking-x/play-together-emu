@@ -170,6 +170,10 @@ export class RoomManager {
     if (disc.size === 0) this.disconnectedPlayers.delete(roomId);
   }
 
+  getReservedCount(roomId: string): number {
+    return this.disconnectedPlayers.get(roomId)?.size ?? 0;
+  }
+
   hasActivePlayers(roomId: string): boolean {
     const room = this.rooms.get(roomId);
     if (!room) return false;

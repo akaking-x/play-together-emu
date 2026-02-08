@@ -222,8 +222,8 @@ export function RoomPage() {
             </div>
           )}
 
-          {/* Upload save state */}
-          <div style={{
+          {/* Upload save state — host only */}
+          {isHost && <div style={{
             marginBottom: 16,
             padding: '12px 16px',
             background: '#1a1a2e',
@@ -270,7 +270,7 @@ export function RoomPage() {
                 Save state se duoc tu dong load khi bat dau game.
               </p>
             )}
-          </div>
+          </div>}
 
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 12 }}>

@@ -53,6 +53,19 @@ export class SignalingServer {
       const room = this.rooms.get(inheritedRoomId);
       if (room && room.players.find(p => p.userId === user.id)) {
         this.send(ws, { type: 'room-updated', room });
+      } else if (room && this.rooms.isReserved(inheritedRoomId, user.id)) {
+        // Player was reserved (disconnected) — restore them
+        const restored = this.rooms.restorePlayer(inheritedRoomId, user.id);
+        if (restored) {
+          this.send(ws, { type: 'room-updated', room: this.rooms.get(inheritedRoomId) });
+          this.broadcastToRoom(inheritedRoomId, {
+            type: 'player-reconnected',
+            userId: user.id,
+            displayName: user.displayName,
+          });
+        } else {
+          conn.roomId = null;
+        }
       } else {
         conn.roomId = null; // Room gone or player was removed
       }
@@ -71,13 +84,10 @@ export class SignalingServer {
       if (this.connections.get(user.id) !== conn) return;
 
       if (conn.roomId) {
-        const room = this.rooms.get(conn.roomId);
-        // During 'playing', reserve slot instead of permanent leave
-        if (room && room.status === 'playing') {
-          this.disconnectFromRoom(conn);
-        } else {
-          this.leaveRoom(conn);
-        }
+        // Always use reservation instead of permanent leave on disconnect.
+        // This prevents rooms from being destroyed by brief network hiccups
+        // (e.g. Cloudflare tunnel reconnects).
+        this.disconnectFromRoom(conn);
       }
       this.connections.delete(user.id);
     });
@@ -132,7 +142,19 @@ export class SignalingServer {
           break;
         }
 
-        if (room.players.length >= room.maxPlayers) {
+        // If player has a reservation, restore them instead of adding new
+        if (this.rooms.isReserved(room.id, conn.user.id)) {
+          const restored = this.rooms.restorePlayer(room.id, conn.user.id);
+          if (restored) {
+            conn.roomId = room.id;
+            this.broadcastRoom(room.id);
+            break;
+          }
+        }
+
+        // Count reserved slots (they are held, not available)
+        const reservedCount = this.rooms.getReservedCount(room.id);
+        if (room.players.length + reservedCount >= room.maxPlayers) {
           this.send(conn.ws, { type: 'error', code: 'FULL', message: 'Room is full' });
           return;
         }
@@ -160,33 +182,25 @@ export class SignalingServer {
           return;
         }
 
-        if (room.status === 'waiting') {
-          // Rejoin waiting room — just re-associate the connection
-          const existingPlayer = room.players.find(p => p.userId === conn.user.id);
-          if (!existingPlayer) {
-            this.send(conn.ws, { type: 'error', code: 'NOT_IN_ROOM', message: 'Not in this room' });
-            return;
-          }
+        if (room.status === 'closed') {
+          this.send(conn.ws, { type: 'error', code: 'ROOM_CLOSED', message: 'Room is closed' });
+          return;
+        }
+
+        // Player still in active players list (WS reconnected without full disconnect)
+        const existingPlayer = room.players.find(p => p.userId === conn.user.id);
+        if (existingPlayer) {
           conn.roomId = room.id;
           this.broadcastRoom(room.id);
           break;
         }
 
-        if (room.status !== 'playing') {
-          this.send(conn.ws, { type: 'error', code: 'ROOM_CLOSED', message: 'Room is closed' });
-          return;
-        }
-        // Player still in room (WebSocket reconnected without full disconnect)
-        const existingInPlaying = room.players.find(p => p.userId === conn.user.id);
-        if (existingInPlaying) {
-          conn.roomId = room.id;
-          this.broadcastRoom(room.id);
-          break;
-        }
+        // Check for reservation (both waiting and playing rooms use reservations now)
         if (!this.rooms.isReserved(room.id, conn.user.id)) {
-          this.send(conn.ws, { type: 'error', code: 'NO_RESERVATION', message: 'No reservation found' });
+          this.send(conn.ws, { type: 'error', code: 'NOT_IN_ROOM', message: 'Not in this room' });
           return;
         }
+
         // Restore player from reservation
         const restored = this.rooms.restorePlayer(room.id, conn.user.id);
         if (!restored) {
@@ -200,11 +214,13 @@ export class SignalingServer {
           userId: conn.user.id,
           displayName: conn.user.displayName,
         });
-        // Send reconnect state to rejoining player if available
-        const reconnectState = this.rooms.getReconnectState(room.id);
-        if (reconnectState) {
-          this.send(conn.ws, { type: 'reconnect-state', stateData: reconnectState });
-          this.rooms.clearReconnectState(room.id);
+        // Send reconnect state to rejoining player if available (playing rooms)
+        if (room.status === 'playing') {
+          const reconnectState = this.rooms.getReconnectState(room.id);
+          if (reconnectState) {
+            this.send(conn.ws, { type: 'reconnect-state', stateData: reconnectState });
+            this.rooms.clearReconnectState(room.id);
+          }
         }
         // Broadcast updated room
         this.broadcastRoom(room.id);
@@ -299,13 +315,17 @@ export class SignalingServer {
     const room = this.rooms.get(roomId);
     if (!room) return;
 
-    const RESERVATION_TIMEOUT = 60_000; // 60 seconds
+    const isHost = room.hostId === conn.user.id;
+    // Host gets 5 minutes, guests get 30s (waiting) or 60s (playing)
+    const timeout = isHost
+      ? 5 * 60_000
+      : room.status === 'playing' ? 60_000 : 30_000;
 
     const timer = setTimeout(() => {
       // Reservation expired — permanent removal
       this.rooms.clearReservation(roomId, conn.user.id);
-      // If host timed out, transfer host
-      if (room.hostId === conn.user.id && room.players.length > 0) {
+      // If host timed out, transfer host to next active player
+      if (isHost && room.players.length > 0) {
         room.hostId = room.players[0].userId;
       }
       // Broadcast permanent leave
@@ -321,7 +341,7 @@ export class SignalingServer {
       } else {
         this.broadcastRoom(roomId);
       }
-    }, RESERVATION_TIMEOUT);
+    }, timeout);
 
     // Reserve the slot (removes from room.players, stores with timer)
     this.rooms.reservePlayer(roomId, conn.user.id, timer);
