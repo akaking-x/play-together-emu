@@ -36,12 +36,9 @@ export function GamePage() {
   const isMultiplayer = !!(room && room.players.length > 1 && gameStarting);
   const isHost = !!(room && room.hostId === localUserId);
 
-  // Leave room on unmount (safety net)
-  useEffect(() => {
-    return () => {
-      leaveRoom();
-    };
-  }, [leaveRoom]);
+  // NOTE: Do NOT leaveRoom() on unmount — the room should persist in 'playing'
+  // status so players can reconnect if they refresh or lose connection.
+  // The backend handles cleanup via disconnect reservation timeouts.
 
   // Fetch game info and ROM URL
   useEffect(() => {

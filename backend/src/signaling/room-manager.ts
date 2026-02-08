@@ -71,7 +71,7 @@ export class RoomManager {
 
   listByGame(gameId: string): LiveRoom[] {
     return [...this.rooms.values()].filter(
-      r => r.gameId === gameId && r.status === 'waiting'
+      r => r.gameId === gameId && r.status !== 'closed'
     );
   }
 

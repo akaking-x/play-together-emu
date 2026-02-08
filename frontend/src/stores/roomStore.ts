@@ -56,7 +56,13 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       onClose: () => set({ connected: false }),
       onRoomUpdated: (r) => {
         set({ room: r });
-        if (r) sessionStorage.setItem('currentRoomId', r.id);
+        if (r) {
+          sessionStorage.setItem('currentRoomId', r.id);
+          // If rejoined a "playing" room, set gameStarting so GamePage can load
+          if (r.status === 'playing') {
+            set({ gameStarting: true });
+          }
+        }
       },
       onRoomList: (r) => set({ rooms: r }),
       onGameStarting: (r) => {

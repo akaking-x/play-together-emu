@@ -128,8 +128,8 @@ export class SignalingServer {
           this.send(conn.ws, { type: 'error', code: 'NOT_FOUND', message: 'Room not found' });
           return;
         }
-        if (room.status !== 'waiting') {
-          this.send(conn.ws, { type: 'error', code: 'STARTED', message: 'Game already started' });
+        if (room.status === 'closed') {
+          this.send(conn.ws, { type: 'error', code: 'ROOM_CLOSED', message: 'Room is closed' });
           return;
         }
 
@@ -147,9 +147,20 @@ export class SignalingServer {
           const restored = this.rooms.restorePlayer(room.id, conn.user.id);
           if (restored) {
             conn.roomId = room.id;
+            this.broadcastToRoom(room.id, {
+              type: 'player-reconnected',
+              userId: conn.user.id,
+              displayName: conn.user.displayName,
+            });
             this.broadcastRoom(room.id);
             break;
           }
+        }
+
+        // Don't allow new players to join a playing room
+        if (room.status === 'playing') {
+          this.send(conn.ws, { type: 'error', code: 'STARTED', message: 'Game already started' });
+          return;
         }
 
         // Count reserved slots (they are held, not available)

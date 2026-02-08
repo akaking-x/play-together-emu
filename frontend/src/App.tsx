@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
+import { useRoomStore } from './stores/roomStore';
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
@@ -13,12 +14,29 @@ import { Dashboard } from './pages/admin/Dashboard';
 import { UserManager } from './pages/admin/UserManager';
 import { GameManager } from './pages/admin/GameManager';
 
+function RoomAutoNavigator() {
+  const room = useRoomStore((s) => s.room);
+  const gameStarting = useRoomStore((s) => s.gameStarting);
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!room || !gameStarting || !room.gameId) return;
+    // If we're already on the game page, don't navigate again
+    if (location.pathname.startsWith('/game/')) return;
+    navigate(`/game/${room.gameId}`);
+  }, [room, gameStarting, navigate, location.pathname]);
+
+  return null;
+}
+
 function ProtectedRoute() {
   const user = useAuthStore((s) => s.user);
   if (!user) return <Navigate to="/login" replace />;
   return (
     <>
       <Navbar />
+      <RoomAutoNavigator />
       <main style={{ padding: '20px', maxWidth: 1200, margin: '0 auto' }}>
         <Outlet />
       </main>

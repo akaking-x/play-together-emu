@@ -264,14 +264,27 @@ export class EmulatorCore {
     // Restore original getContext
     this.unpatchWebGLContext();
 
-    // Disconnect EmulatorJS netplay if active
+    // Stop EmulatorJS: pause emulation, close netplay, close audio
     try {
       const emu = window.EJS_emulator as any;
-      if (emu?.netplay) {
-        emu.netplay.close?.();
+      if (emu) {
+        // Pause the emulator to stop frame loop and audio output
+        emu.pause?.();
+        // Close netplay connection
+        if (emu.netplay) {
+          emu.netplay.close?.();
+        }
+        // Close the AudioContext to stop all audio
+        if (emu.audioContext) {
+          emu.audioContext.close?.();
+        }
+        // Also try the gameManager's Module audio context
+        if (emu.gameManager?.Module?.SDL2?.audioContext) {
+          emu.gameManager.Module.SDL2.audioContext.close?.();
+        }
       }
     } catch {
-      // Ignore netplay cleanup errors
+      // Ignore cleanup errors
     }
 
     // Clean up EmulatorJS globals
