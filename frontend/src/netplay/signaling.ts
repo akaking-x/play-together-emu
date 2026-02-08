@@ -97,11 +97,12 @@ export class SignalingClient {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       // Only handle close for the CURRENT WebSocket
       if (this.ws !== ws) return;
       this.callbacks.onClose?.();
-      if (!this.intentionalClose) {
+      // Code 4000 = replaced by another tab/session — don't reconnect
+      if (!this.intentionalClose && event.code !== 4000) {
         this.scheduleReconnect();
       }
     };

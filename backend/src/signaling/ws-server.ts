@@ -42,7 +42,7 @@ export class SignalingServer {
     if (old) {
       inheritedRoomId = old.roomId;
       old.roomId = null; // Clear BEFORE close so close handler won't remove from room
-      old.ws.close(1000, 'Replaced');
+      old.ws.close(4000, 'Replaced by new connection');
     }
 
     const conn: ConnectedUser = { ws, user, roomId: inheritedRoomId };
