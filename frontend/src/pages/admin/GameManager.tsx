@@ -3,6 +3,20 @@ import { api } from '../../api/client';
 import type { Game } from '../../stores/gameStore';
 import { SplitScreenEditor } from '../../components/admin/SplitScreenEditor';
 
+const GAME_TAGS: string[] = [
+  'Action', 'Adventure', 'RPG', 'JRPG', 'Racing', 'Fighting', 'Sports',
+  'Puzzle', 'Platformer', 'Shooter', 'Survival Horror', 'Stealth', 'Strategy',
+  'Simulation', 'Rhythm', "Beat 'em Up", 'Hack and Slash', 'Turn-Based',
+  'Real-Time Strategy', 'Tactical RPG', 'Visual Novel', 'Party', 'Board Game',
+  'Card Game', 'Arcade', 'Sandbox', 'Open World', 'Sci-Fi', 'Fantasy', 'Mecha',
+  'Anime', 'Horror', 'Comedy', 'Military', 'Wrestling', 'Boxing', 'Soccer',
+  'Baseball', 'Basketball', 'Golf', 'Tennis', 'Fishing', 'Cooking', 'Educational',
+  'Trivia', 'Flight Sim', 'Space', 'Dungeon Crawler', 'Roguelike', 'Metroidvania',
+  'Side-Scroller', 'Top-Down', 'Isometric', 'First-Person', 'Third-Person',
+  'Co-op', 'Competitive', 'Split-Screen', '2D', '3D', 'Retro', 'Classic',
+  'Hidden Object', 'Point and Click',
+];
+
 const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB — safe under Cloudflare's 100MB limit
 
 export function GameManager() {
@@ -22,7 +36,7 @@ export function GameManager() {
   const [slug, setSlug] = useState('');
   const [discId, setDiscId] = useState('');
   const [region, setRegion] = useState('US');
-  const [genre, setGenre] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [minPlayers, setMinPlayers] = useState(2);
   const [maxPlayers, setMaxPlayers] = useState(2);
   const [description, setDescription] = useState('');
@@ -49,7 +63,7 @@ export function GameManager() {
     setSlug('');
     setDiscId('');
     setRegion('US');
-    setGenre('');
+    setTags([]);
     setMinPlayers(2);
     setMaxPlayers(2);
     setDescription('');
@@ -67,7 +81,7 @@ export function GameManager() {
     formData.append('slug', getSlugValue());
     formData.append('discId', discId);
     formData.append('region', region);
-    formData.append('genre', genre);
+    formData.append('tags', JSON.stringify(tags));
     formData.append('minPlayers', String(minPlayers));
     formData.append('maxPlayers', String(maxPlayers));
     formData.append('description', description);
@@ -160,7 +174,7 @@ export function GameManager() {
       slug: getSlugValue(),
       discId,
       region,
-      genre,
+      tags: JSON.stringify(tags),
       minPlayers: String(minPlayers),
       maxPlayers: String(maxPlayers),
       description,
@@ -205,7 +219,7 @@ export function GameManager() {
       slug,
       discId,
       region,
-      genre,
+      tags,
       minPlayers,
       maxPlayers,
       description,
@@ -245,7 +259,7 @@ export function GameManager() {
     setSlug(game.slug);
     setDiscId(game.discId);
     setRegion(game.region);
-    setGenre(game.genre);
+    setTags(game.tags || []);
     setMinPlayers(game.minPlayers);
     setMaxPlayers(game.maxPlayers);
     setDescription(game.description);
@@ -304,14 +318,36 @@ export function GameManager() {
                 <option value="JP">JP</option>
               </select>
             </div>
-            <div className="form-group">
-              <label>The loai</label>
-              <input
-                type="text"
-                value={genre}
-                onChange={(e) => setGenre(e.target.value)}
-                placeholder="VD: Racing"
-              />
+          </div>
+
+          {/* Tags picker */}
+          <div className="form-group">
+            <label>The loai (tags)</label>
+            {tags.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="badge badge-active"
+                    style={{ cursor: 'pointer', padding: '4px 8px' }}
+                    onClick={() => setTags(tags.filter(t => t !== tag))}
+                  >
+                    {tag} &times;
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 150, overflowY: 'auto', padding: '8px 0' }}>
+              {GAME_TAGS.filter(t => !tags.includes(t)).map((tag) => (
+                <span
+                  key={tag}
+                  className="badge"
+                  style={{ cursor: 'pointer', padding: '4px 8px', opacity: 0.7 }}
+                  onClick={() => setTags([...tags, tag])}
+                >
+                  {tag}
+                </span>
+              ))}
             </div>
           </div>
 
@@ -489,7 +525,15 @@ export function GameManager() {
                   </div>
                 </td>
                 <td><span className="badge">{game.region}</span></td>
-                <td>{game.genre || '-'}</td>
+                <td>
+                  {game.tags?.length ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                      {game.tags.map((tag) => (
+                        <span key={tag} className="badge badge-secondary" style={{ fontSize: 10 }}>{tag}</span>
+                      ))}
+                    </div>
+                  ) : '-'}
+                </td>
                 <td>{game.minPlayers}-{game.maxPlayers}</td>
                 <td className="text-muted text-sm">
                   {game.romFilename}

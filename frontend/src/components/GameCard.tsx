@@ -66,7 +66,9 @@ export function GameCard({ game }: Props) {
         <h3 className="game-card-title">{game.title}</h3>
         <div className="game-card-meta">
           <span className="badge">{game.region}</span>
-          {game.genre && <span className="badge badge-secondary">{game.genre}</span>}
+          {game.tags?.map((tag) => (
+            <span key={tag} className="badge badge-secondary">{tag}</span>
+          ))}
           <span className="badge badge-info">
             {game.minPlayers}-{game.maxPlayers} nguoi choi
           </span>

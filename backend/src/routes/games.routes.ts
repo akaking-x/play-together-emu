@@ -9,7 +9,15 @@ export const gamesRoutes = Router();
 
 // GET /api/games - list active games
 gamesRoutes.get('/', async (req, res) => {
-  const games = await Game.find({ isActive: true })
+  const filter: Record<string, unknown> = { isActive: true };
+  const tagsParam = req.query.tags as string | undefined;
+  if (tagsParam) {
+    const tagsArray = tagsParam.split(',').map(t => t.trim()).filter(Boolean);
+    if (tagsArray.length > 0) {
+      filter.tags = { $in: tagsArray };
+    }
+  }
+  const games = await Game.find(filter)
     .select('-romPath')
     .sort({ title: 1 });
   res.json(games);

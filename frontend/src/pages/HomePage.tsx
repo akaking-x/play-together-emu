@@ -12,6 +12,7 @@ export function HomePage() {
 
   const [search, setSearch] = useState('');
   const [activeLetter, setActiveLetter] = useState<string | null>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -21,7 +22,20 @@ export function HomePage() {
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
-  }, [search, activeLetter]);
+  }, [search, activeLetter, activeTags]);
+
+  // Collect all unique tags from loaded games
+  const allTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    games.forEach((g) => g.tags?.forEach((t) => tagSet.add(t)));
+    return Array.from(tagSet).sort();
+  }, [games]);
+
+  const toggleTag = (tag: string) => {
+    setActiveTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
 
   const filtered = useMemo(() => {
     let result = games;
@@ -39,8 +53,14 @@ export function HomePage() {
       result = result.filter((g) => g.title.toLowerCase().includes(q));
     }
 
+    if (activeTags.length > 0) {
+      result = result.filter((g) =>
+        activeTags.some((tag) => g.tags?.includes(tag))
+      );
+    }
+
     return result;
-  }, [games, activeLetter, search]);
+  }, [games, activeLetter, search, activeTags]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -82,6 +102,35 @@ export function HomePage() {
           </button>
         )}
       </div>
+
+      {/* Tag filter */}
+      {allTags.length > 0 && (
+        <div className="tag-filter" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 16 }}>
+          {activeTags.length > 0 && (
+            <button
+              className="alphabet-btn alphabet-btn-clear"
+              onClick={() => setActiveTags([])}
+            >
+              Tat ca
+            </button>
+          )}
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              className={`badge${activeTags.includes(tag) ? ' badge-active' : ''}`}
+              style={{
+                cursor: 'pointer',
+                padding: '4px 10px',
+                border: 'none',
+                opacity: activeTags.length > 0 && !activeTags.includes(tag) ? 0.5 : 1,
+              }}
+              onClick={() => toggleTag(tag)}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="loading-spinner">Dang tai...</div>

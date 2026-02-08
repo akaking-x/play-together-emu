@@ -10,6 +10,7 @@ import path from 'path';
 import { config } from '../config.js';
 import { storageService } from '../services/storage.service.js';
 import { parseCheatsFile } from '../services/split-screen.service.js';
+import { GAME_TAGS } from '../constants/game-tags.js';
 import sharp from 'sharp';
 
 export const adminRoutes = Router();
@@ -120,13 +121,15 @@ adminRoutes.post('/games', upload.single('rom'), async (req, res) => {
     return;
   }
 
-  const { title, slug, discId, region, genre, minPlayers, maxPlayers, hasSplitScreen, description } = req.body;
+  const { title, slug, discId, region, minPlayers, maxPlayers, hasSplitScreen, description } = req.body;
+  let tags: string[] = [];
+  try { tags = JSON.parse(req.body.tags || '[]'); } catch { tags = []; }
 
   // Save ROM file
   const romPath = await storageService.saveROM(req.file.originalname, req.file.buffer);
 
   const game = await Game.create({
-    title, slug, discId, region, genre,
+    title, slug, discId, region, tags,
     minPlayers: parseInt(minPlayers) || 2,
     maxPlayers: parseInt(maxPlayers) || 2,
     hasSplitScreen: hasSplitScreen !== 'false',
@@ -325,7 +328,9 @@ adminRoutes.post('/games/upload/complete/:sessionId', async (req, res) => {
     return;
   }
 
-  const { title, slug, discId, region, genre, minPlayers, maxPlayers, description } = req.body;
+  const { title, slug, discId, region, minPlayers, maxPlayers, description } = req.body;
+  let tags: string[] = [];
+  try { tags = JSON.parse(req.body.tags || '[]'); } catch { tags = Array.isArray(req.body.tags) ? req.body.tags : []; }
 
   // Build ordered chunk paths
   const chunkPaths: string[] = [];
@@ -338,7 +343,7 @@ adminRoutes.post('/games/upload/complete/:sessionId', async (req, res) => {
 
   // Create game record
   const game = await Game.create({
-    title, slug, discId, region, genre,
+    title, slug, discId, region, tags,
     minPlayers: parseInt(minPlayers) || 2,
     maxPlayers: parseInt(maxPlayers) || 2,
     description,
@@ -352,6 +357,12 @@ adminRoutes.post('/games/upload/complete/:sessionId', async (req, res) => {
   uploadSessions.delete(session.id);
 
   res.json(game);
+});
+
+// === TAGS ===
+
+adminRoutes.get('/tags', (_req, res) => {
+  res.json(GAME_TAGS);
 });
 
 // === STATS ===

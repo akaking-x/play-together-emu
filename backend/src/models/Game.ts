@@ -21,7 +21,7 @@ export interface IGame extends Document {
   slug: string;
   discId: string;
   region: 'US' | 'EU' | 'JP';
-  genre: string;
+  tags: string[];
   romFilename: string;
   romPath: string;
   romSizeBytes: number;
@@ -56,7 +56,7 @@ const GameSchema = new Schema<IGame>({
   slug:           { type: String, required: true, unique: true, index: true },
   discId:         { type: String, default: '' },
   region:         { type: String, enum: ['US', 'EU', 'JP'], default: 'US' },
-  genre:          { type: String, default: '' },
+  tags:           { type: [String], default: [] },
   romFilename:    { type: String, required: true },
   romPath:        { type: String, required: true },
   romSizeBytes:   { type: Number, default: 0 },

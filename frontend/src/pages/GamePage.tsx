@@ -328,7 +328,7 @@ export function GamePage() {
         <div>
           <h2 style={{ margin: 0 }}>{game.title}</h2>
           <span style={{ color: '#666', fontSize: 13 }}>
-            {game.region} | {game.genre}
+            {game.region}{game.tags?.length ? ` | ${game.tags.join(', ')}` : ''}
             {isMultiplayer && (
               <span style={{ marginLeft: 8, color: isHost ? '#4ecdc4' : '#ffa500' }}>
                 {isHost ? '(Host)' : '(Guest)'}

@@ -8,7 +8,7 @@ export interface Game {
   slug: string;
   discId: string;
   region: string;
-  genre: string;
+  tags: string[];
   romFilename: string;
   romSizeBytes: number;
   minPlayers: number;
