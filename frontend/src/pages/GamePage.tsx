@@ -124,13 +124,32 @@ export function GamePage() {
     if (!emulatorInstance || !isMultiplayer || !room) return;
 
     const emu = (window as any).EJS_emulator;
-    if (!emu?.netplay) return;
+    if (!emu) return;
 
     const displayName = user?.displayName || user?.id?.slice(0, 8) || 'Player';
     const netplayRoomName = `room-${room.id}`;
 
-    // Small delay to ensure netplay module is fully initialized
+    // Wait for emulator to be fully initialized before setting up netplay
     const timer = setTimeout(() => {
+      // EmulatorJS lazy-initializes netplay only when the user opens the
+      // Netplay menu. We programmatically initialize it with dummy UI
+      // elements so auto-connect works without user interaction.
+      if (!emu.netplay || !emu.netplay.openRoom) {
+        const dummy = () => document.createElement('div');
+        emu.netplay = {};
+        emu.netplay.table = dummy();
+        emu.netplay.playerTable = dummy();
+        emu.netplay.passwordElem = dummy();
+        emu.netplay.roomNameElem = dummy();
+        emu.netplay.createButton = dummy();
+        emu.netplay.tabs = [dummy(), dummy()];
+
+        if (typeof emu.defineNetplayFunctions === 'function') {
+          emu.defineNetplayFunctions();
+        }
+      }
+
+      if (!emu.netplay?.openRoom) return;
       emu.netplay.name = displayName;
 
       if (isHost) {
@@ -159,7 +178,7 @@ export function GamePage() {
           clearTimeout(stopTimer);
         };
       }
-    }, 1500);
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [emulatorInstance, isMultiplayer, room, isHost, user]);

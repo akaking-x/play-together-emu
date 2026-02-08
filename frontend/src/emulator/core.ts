@@ -101,6 +101,9 @@ export class EmulatorCore {
         window.EJS_gameID = netplay.gameId;
         window.EJS_netplayServer = netplay.serverUrl;
         window.EJS_netplayICEServers = netplay.iceServers;
+        // EmulatorJS 4.x gates netplay behind experimental flags
+        (window as any).EJS_DEBUG_XX = true;
+        (window as any).EJS_EXPERIMENTAL_NETPLAY = true;
       }
 
       // Set up game start callback
@@ -297,6 +300,8 @@ export class EmulatorCore {
     delete window.EJS_gameID;
     delete window.EJS_netplayServer;
     delete window.EJS_netplayICEServers;
+    delete (window as any).EJS_DEBUG_XX;
+    delete (window as any).EJS_EXPERIMENTAL_NETPLAY;
 
     this.instance = null;
     this.frameCount = 0;
