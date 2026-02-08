@@ -1,11 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useGameStore } from '../stores/gameStore';
 import { useRoom } from '../hooks/useRoom';
 import { PlayerSlot } from '../components/PlayerSlot';
 import { ChatBox } from '../components/ChatBox';
-import { prefetchROM } from '../utils/prefetch';
+import { prefetchROMWithProgress } from '../utils/prefetch';
 
 export function RoomPage() {
   useParams(); // keep route param matching active
@@ -27,13 +27,21 @@ export function RoomPage() {
     sendChat,
   } = useRoom();
 
-  // Prefetch ROM in background while waiting in room
+  const [romProgress, setRomProgress] = useState<number>(0);
+  const [romCached, setRomCached] = useState(false);
+
+  // Prefetch ROM with progress tracking
   const games = useGameStore((s) => s.games);
   useEffect(() => {
-    if (room?.gameId) {
-      const game = games.find((g) => g._id === room.gameId);
-      prefetchROM(room.gameId, game?.title);
-    }
+    if (!room?.gameId) return;
+    const game = games.find((g) => g._id === room.gameId);
+    const { promise, abort } = prefetchROMWithProgress(
+      room.gameId,
+      game?.title,
+      (pct) => setRomProgress(pct),
+    );
+    promise.then((ok) => setRomCached(ok));
+    return () => abort();
   }, [room?.gameId, games]);
 
   // Navigate to game when game starts
@@ -78,6 +86,8 @@ export function RoomPage() {
     leaveRoom();
     navigate(`/lobby/${room.gameId}`);
   };
+
+  const canStart = allReady && romCached;
 
   return (
     <div>
@@ -142,47 +152,97 @@ export function RoomPage() {
             ))}
           </div>
 
+          {/* ROM download progress */}
+          {!romCached && (
+            <div style={{
+              marginBottom: 16,
+              padding: '10px 16px',
+              background: '#1a1a2e',
+              border: '1px solid #333',
+              borderRadius: 6,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span style={{ color: '#aaa', fontSize: 13 }}>Dang tai game...</span>
+                <span style={{ color: '#4ecdc4', fontSize: 13, fontWeight: 'bold' }}>{romProgress}%</span>
+              </div>
+              <div style={{
+                width: '100%',
+                height: 6,
+                background: '#333',
+                borderRadius: 3,
+                overflow: 'hidden',
+              }}>
+                <div style={{
+                  width: `${romProgress}%`,
+                  height: '100%',
+                  background: '#4ecdc4',
+                  borderRadius: 3,
+                  transition: 'width 0.3s ease',
+                }} />
+              </div>
+            </div>
+          )}
+
+          {romCached && (
+            <div style={{
+              marginBottom: 16,
+              padding: '8px 16px',
+              background: '#1a2e1a',
+              border: '1px solid #2a5a2a',
+              borderRadius: 6,
+              color: '#4ecd6a',
+              fontSize: 13,
+            }}>
+              Game da san sang
+            </div>
+          )}
+
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 12 }}>
             {!isHost && (
               <button
                 onClick={() => setReady(!isReady)}
+                disabled={!romCached}
                 style={{
                   padding: '10px 24px',
-                  background: isReady ? '#888' : '#4ecdc4',
+                  background: !romCached ? '#555' : isReady ? '#888' : '#4ecdc4',
                   color: '#fff',
                   border: 'none',
                   borderRadius: 4,
-                  cursor: 'pointer',
+                  cursor: !romCached ? 'not-allowed' : 'pointer',
                   fontSize: 14,
                 }}
               >
-                {isReady ? 'Huy san sang' : 'San sang'}
+                {!romCached
+                  ? `Dang tai game... ${romProgress}%`
+                  : isReady ? 'Huy san sang' : 'San sang'}
               </button>
             )}
 
             {isHost && (
               <button
                 onClick={startGame}
-                disabled={!allReady}
+                disabled={!canStart}
                 style={{
                   padding: '10px 24px',
-                  background: allReady ? '#ff6b35' : '#555',
+                  background: canStart ? '#ff6b35' : '#555',
                   color: '#fff',
                   border: 'none',
                   borderRadius: 4,
-                  cursor: allReady ? 'pointer' : 'not-allowed',
+                  cursor: canStart ? 'pointer' : 'not-allowed',
                   fontSize: 14,
                 }}
               >
-                Bat dau choi
+                {!romCached ? `Dang tai game... ${romProgress}%` : 'Bat dau choi'}
               </button>
             )}
           </div>
 
-          {isHost && !allReady && (
+          {isHost && !canStart && (
             <p style={{ color: '#888', fontSize: 13, marginTop: 8 }}>
-              {room.players.length < 2 ? 'Ban co the bat dau choi mot minh hoac doi them nguoi choi.' : 'Doi tat ca nguoi choi san sang...'}
+              {!romCached
+                ? 'Dang tai game, vui long doi...'
+                : room.players.length < 2 ? 'Ban co the bat dau choi mot minh hoac doi them nguoi choi.' : 'Doi tat ca nguoi choi san sang...'}
             </p>
           )}
 

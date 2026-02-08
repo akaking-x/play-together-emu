@@ -132,3 +132,99 @@ export async function clearAllCachedROMs(): Promise<void> {
     // ignore
   }
 }
+
+export async function isROMCached(gameId: string): Promise<boolean> {
+  if (!isCacheAPIAvailable()) return false;
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const resp = await cache.match(`/api/games/${gameId}/rom`);
+    return !!resp;
+  } catch {
+    return false;
+  }
+}
+
+export function prefetchROMWithProgress(
+  gameId: string,
+  title?: string,
+  onProgress?: (pct: number) => void,
+): { promise: Promise<boolean>; abort: () => void } {
+  const url = `/api/games/${gameId}/rom`;
+  const controller = new AbortController();
+
+  const promise = (async (): Promise<boolean> => {
+    try {
+      if (isCacheAPIAvailable()) {
+        const cache = await caches.open(CACHE_NAME);
+        const existing = await cache.match(url);
+        if (existing) {
+          onProgress?.(100);
+          return true;
+        }
+      }
+
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) return false;
+
+      const contentLength = response.headers.get('Content-Length');
+      const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+      if (!response.body || !total) {
+        // Can't stream — fall back to full download
+        const blob = await response.blob();
+        onProgress?.(100);
+
+        if (isCacheAPIAvailable()) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(url, new Response(blob, {
+            headers: response.headers,
+          }));
+          const meta = getMeta();
+          meta[gameId] = {
+            title: title || gameId,
+            sizeBytes: blob.size,
+            cachedAt: new Date().toISOString(),
+          };
+          setMeta(meta);
+        }
+        return true;
+      }
+
+      const reader = response.body.getReader();
+      const chunks: BlobPart[] = [];
+      let received = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        onProgress?.(Math.min(99, Math.round((received / total) * 100)));
+      }
+
+      const blob = new Blob(chunks);
+      onProgress?.(100);
+
+      if (isCacheAPIAvailable()) {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(url, new Response(blob, {
+          headers: response.headers,
+        }));
+        const meta = getMeta();
+        meta[gameId] = {
+          title: title || gameId,
+          sizeBytes: blob.size,
+          cachedAt: new Date().toISOString(),
+        };
+        setMeta(meta);
+      }
+
+      return true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return false;
+      return false;
+    }
+  })();
+
+  return { promise, abort: () => controller.abort() };
+}

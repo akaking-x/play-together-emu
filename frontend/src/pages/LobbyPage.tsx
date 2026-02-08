@@ -55,10 +55,15 @@ export function LobbyPage() {
     }
   }, [room, navigate]);
 
+  const [creating, setCreating] = useState(false);
+
   const handleCreate = () => {
-    if (!gameId) return;
+    if (!gameId || !connected || creating) return;
+    setCreating(true);
     const name = roomName.trim() || generateRoomName();
     createRoom(gameId, name, maxPlayers, isPrivate);
+    // Reset after a short delay to allow WS to respond
+    setTimeout(() => setCreating(false), 2000);
     setShowCreate(false);
     setRoomName('');
   };
@@ -142,7 +147,25 @@ export function LobbyPage() {
           padding: 20,
           background: '#1a1a2e',
           marginBottom: 20,
+          position: 'relative',
         }}>
+          {!connected && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(0,0,0,0.7)',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1,
+              color: '#ff6b35',
+              fontWeight: 'bold',
+              fontSize: 14,
+            }}>
+              Dang ket noi... Vui long doi
+            </div>
+          )}
           <h3 style={{ margin: '0 0 16px' }}>Tao phong moi</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 400 }}>
             <div>
@@ -212,16 +235,17 @@ export function LobbyPage() {
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 onClick={handleCreate}
+                disabled={!connected || creating}
                 style={{
                   padding: '8px 20px',
-                  background: '#4ecdc4',
+                  background: (!connected || creating) ? '#555' : '#4ecdc4',
                   color: '#fff',
                   border: 'none',
                   borderRadius: 4,
-                  cursor: 'pointer',
+                  cursor: (!connected || creating) ? 'not-allowed' : 'pointer',
                 }}
               >
-                Tao phong
+                {creating ? 'Dang tao...' : 'Tao phong'}
               </button>
               <button
                 onClick={() => setShowCreate(false)}
