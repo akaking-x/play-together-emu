@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const Redis = require('ioredis');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,8 +24,81 @@ const io = socketIo(server, {
 });
 
 const PORT = process.env.PORT || 3001;
-let rooms = {};
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const ROOM_TTL = 7200; // 2 hours safety TTL
 
+// --- Redis setup ---
+const pubClient = new Redis(REDIS_URL);
+const subClient = pubClient.duplicate();
+const redis = new Redis(REDIS_URL); // general-purpose client for room state
+
+pubClient.on('error', (err) => console.error('Redis pub error:', err.message));
+subClient.on('error', (err) => console.error('Redis sub error:', err.message));
+redis.on('error', (err) => console.error('Redis error:', err.message));
+
+io.adapter(createAdapter(pubClient, subClient));
+console.log('Socket.IO Redis adapter attached');
+
+// --- Redis room helpers ---
+const ROOMS_ACTIVE_KEY = 'rooms:active';
+
+function roomKey(sessionId) {
+  return `room:${sessionId}`;
+}
+
+function playersKey(sessionId) {
+  return `room:${sessionId}:players`;
+}
+
+async function createRoom(sessionId, roomData) {
+  const pipeline = redis.pipeline();
+  pipeline.hset(roomKey(sessionId), roomData);
+  pipeline.expire(roomKey(sessionId), ROOM_TTL);
+  pipeline.sadd(ROOMS_ACTIVE_KEY, sessionId);
+  await pipeline.exec();
+}
+
+async function getRoom(sessionId) {
+  const data = await redis.hgetall(roomKey(sessionId));
+  if (!data || Object.keys(data).length === 0) return null;
+  return data;
+}
+
+async function deleteRoom(sessionId) {
+  const pipeline = redis.pipeline();
+  pipeline.del(roomKey(sessionId));
+  pipeline.del(playersKey(sessionId));
+  pipeline.srem(ROOMS_ACTIVE_KEY, sessionId);
+  await pipeline.exec();
+}
+
+async function setPlayer(sessionId, playerId, playerData) {
+  await redis.hset(playersKey(sessionId), playerId, JSON.stringify(playerData));
+  await redis.expire(playersKey(sessionId), ROOM_TTL);
+}
+
+async function removePlayer(sessionId, playerId) {
+  await redis.hdel(playersKey(sessionId), playerId);
+}
+
+async function getPlayers(sessionId) {
+  const raw = await redis.hgetall(playersKey(sessionId));
+  const players = {};
+  for (const [id, json] of Object.entries(raw)) {
+    players[id] = JSON.parse(json);
+  }
+  return players;
+}
+
+async function getPlayerCount(sessionId) {
+  return await redis.hlen(playersKey(sessionId));
+}
+
+async function setRoomField(sessionId, field, value) {
+  await redis.hset(roomKey(sessionId), field, value);
+}
+
+// --- Utility ---
 const getClientIp = (socket) => {
   const forwarded = socket.handshake.headers['x-forwarded-for'];
   if (forwarded) {
@@ -32,126 +107,164 @@ const getClientIp = (socket) => {
   return socket.handshake.headers['x-real-ip'] || socket.handshake.address;
 };
 
-// Clean up empty rooms every 60 seconds
-setInterval(() => {
-  for (const sessionId in rooms) {
-    if (Object.keys(rooms[sessionId].players).length === 0) {
-      delete rooms[sessionId];
+// --- Cleanup empty rooms every 60 seconds ---
+setInterval(async () => {
+  try {
+    const activeIds = await redis.smembers(ROOMS_ACTIVE_KEY);
+    for (const sessionId of activeIds) {
+      const count = await getPlayerCount(sessionId);
+      if (count === 0) {
+        await deleteRoom(sessionId);
+      }
     }
+  } catch (err) {
+    console.error('Cleanup error:', err.message);
   }
 }, 60000);
 
-app.get('/list', (req, res) => {
-  const gameId = req.query.game_id;
-  const openRooms = Object.keys(rooms)
-    .filter((sessionId) => {
-      const room = rooms[sessionId];
-      return (
-        room &&
-        Object.keys(room.players).length < room.maxPlayers &&
-        String(room.gameId) === gameId
+// --- REST: list open rooms ---
+app.get('/list', async (req, res) => {
+  try {
+    const gameId = req.query.game_id;
+    const activeIds = await redis.smembers(ROOMS_ACTIVE_KEY);
+    const openRooms = {};
+
+    for (const sessionId of activeIds) {
+      const room = await getRoom(sessionId);
+      if (!room) continue;
+
+      const players = await getPlayers(sessionId);
+      const playerCount = Object.keys(players).length;
+      const maxPlayers = parseInt(room.maxPlayers, 10) || 4;
+
+      if (playerCount >= maxPlayers) continue;
+      if (String(room.gameId) !== gameId) continue;
+
+      const ownerPlayerId = Object.keys(players).find(
+        (pid) => players[pid].socketId === room.owner
       );
-    })
-    .reduce((acc, sessionId) => {
-      const room = rooms[sessionId];
-      const ownerPlayerId = Object.keys(room.players).find(
-        (playerId) => room.players[playerId].socketId === room.owner
-      );
-      const playerName = ownerPlayerId ? room.players[ownerPlayerId].player_name : 'Unknown';
-      acc[sessionId] = {
+      const playerName = ownerPlayerId ? players[ownerPlayerId].player_name : 'Unknown';
+
+      openRooms[sessionId] = {
         room_name: room.roomName,
-        current: Object.keys(room.players).length,
-        max: room.maxPlayers,
+        current: playerCount,
+        max: maxPlayers,
         player_name: playerName,
-        hasPassword: !!room.password,
+        hasPassword: room.password !== '' && room.password !== 'null',
       };
-      return acc;
-    }, {});
-  res.json(openRooms);
+    }
+
+    res.json(openRooms);
+  } catch (err) {
+    console.error('List error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
+// --- Socket.IO event handlers ---
 io.on('connection', (socket) => {
   const clientIp = getClientIp(socket);
 
-  socket.on('open-room', (data, callback) => {
-    let sessionId, playerId, roomName, gameId, maxPlayers, playerName, roomPassword;
-    if (data.extra) {
-      sessionId = data.extra.sessionid;
-      playerId = data.extra.userid || data.extra.playerId;
-      roomName = data.extra.room_name;
-      gameId = data.extra.game_id;
-      maxPlayers = data.maxPlayers || 4;
-      playerName = data.extra.player_name || 'Unknown';
-      roomPassword = data.extra.room_password || 'none';
-    }
-    if (!sessionId || !playerId) {
-      return callback('Invalid data: sessionId and playerId required');
-    }
-    if (rooms[sessionId]) {
-      return callback('Room already exists');
-    }
+  socket.on('open-room', async (data, callback) => {
+    try {
+      let sessionId, playerId, roomName, gameId, maxPlayers, playerName, roomPassword;
+      if (data.extra) {
+        sessionId = data.extra.sessionid;
+        playerId = data.extra.userid || data.extra.playerId;
+        roomName = data.extra.room_name;
+        gameId = data.extra.game_id;
+        maxPlayers = data.maxPlayers || 4;
+        playerName = data.extra.player_name || 'Unknown';
+        roomPassword = data.extra.room_password || 'none';
+      }
+      if (!sessionId || !playerId) {
+        return callback('Invalid data: sessionId and playerId required');
+      }
 
-    let finalDomain = data.extra.domain;
-    if (finalDomain === undefined || finalDomain === null) {
-      finalDomain = 'unknown';
-    }
+      const existing = await getRoom(sessionId);
+      if (existing) {
+        return callback('Room already exists');
+      }
 
-    rooms[sessionId] = {
-      owner: socket.id,
-      players: { [playerId]: { ...data.extra, socketId: socket.id } },
-      peers: [],
-      roomName: roomName || `Room ${sessionId}`,
-      gameId: gameId || 'default',
-      domain: finalDomain,
-      password: data.password || null,
-      maxPlayers: maxPlayers,
-    };
-    socket.join(sessionId);
-    socket.sessionId = sessionId;
-    socket.playerId = playerId;
-    io.to(sessionId).emit('users-updated', rooms[sessionId].players);
-    callback(null);
-  });
+      let finalDomain = data.extra.domain;
+      if (finalDomain === undefined || finalDomain === null) {
+        finalDomain = 'unknown';
+      }
 
-  socket.on('join-room', (data, callback) => {
-    const { sessionid: sessionId, userid: playerId, player_name: playerName = 'Unknown' } = data.extra || {};
+      await createRoom(sessionId, {
+        owner: socket.id,
+        roomName: roomName || `Room ${sessionId}`,
+        gameId: gameId || 'default',
+        domain: finalDomain,
+        password: data.password || '',
+        maxPlayers: maxPlayers,
+      });
 
-    if (!sessionId || !playerId) {
-      if (typeof callback === 'function') callback('Invalid data: sessionId and playerId required');
-      return;
-    }
+      const playerData = { ...data.extra, socketId: socket.id };
+      await setPlayer(sessionId, playerId, playerData);
 
-    const room = rooms[sessionId];
-    if (!room) {
-      if (typeof callback === 'function') callback('Room not found');
-      return;
-    }
+      socket.join(sessionId);
+      socket.sessionId = sessionId;
+      socket.playerId = playerId;
 
-    const roomPassword = data.password || null;
-    if (room.password && room.password !== roomPassword) {
-      if (typeof callback === 'function') callback('Incorrect password');
-      return;
-    }
-
-    if (Object.keys(room.players).length >= room.maxPlayers) {
-      if (typeof callback === 'function') callback('Room full');
-      return;
-    }
-
-    room.players[playerId] = { ...data.extra, socketId: socket.id };
-    socket.join(sessionId);
-    socket.sessionId = sessionId;
-    socket.playerId = playerId;
-
-    io.to(sessionId).emit('users-updated', room.players);
-
-    if (typeof callback === 'function') {
-      callback(null, room.players);
+      const players = await getPlayers(sessionId);
+      io.to(sessionId).emit('users-updated', players);
+      callback(null);
+    } catch (err) {
+      console.error('open-room error:', err.message);
+      callback('Server error');
     }
   });
 
-  socket.on('leave-room', () => {
-    handlePlayerLeave(socket);
+  socket.on('join-room', async (data, callback) => {
+    try {
+      const { sessionid: sessionId, userid: playerId, player_name: playerName = 'Unknown' } = data.extra || {};
+
+      if (!sessionId || !playerId) {
+        if (typeof callback === 'function') callback('Invalid data: sessionId and playerId required');
+        return;
+      }
+
+      const room = await getRoom(sessionId);
+      if (!room) {
+        if (typeof callback === 'function') callback('Room not found');
+        return;
+      }
+
+      const roomPassword = data.password || null;
+      if (room.password && room.password !== '' && room.password !== roomPassword) {
+        if (typeof callback === 'function') callback('Incorrect password');
+        return;
+      }
+
+      const playerCount = await getPlayerCount(sessionId);
+      const maxPlayers = parseInt(room.maxPlayers, 10) || 4;
+      if (playerCount >= maxPlayers) {
+        if (typeof callback === 'function') callback('Room full');
+        return;
+      }
+
+      const playerData = { ...data.extra, socketId: socket.id };
+      await setPlayer(sessionId, playerId, playerData);
+
+      socket.join(sessionId);
+      socket.sessionId = sessionId;
+      socket.playerId = playerId;
+
+      const players = await getPlayers(sessionId);
+      io.to(sessionId).emit('users-updated', players);
+
+      if (typeof callback === 'function') {
+        callback(null, players);
+      }
+    } catch (err) {
+      console.error('join-room error:', err.message);
+      if (typeof callback === 'function') callback('Server error');
+    }
+  });
+
+  socket.on('leave-room', async () => {
+    await handlePlayerLeave(socket);
   });
 
   socket.on('webrtc-signal', (data) => {
@@ -183,6 +296,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Relay events — Socket.IO Redis adapter handles cross-instance broadcast
   socket.on('data-message', (data) => {
     if (socket.sessionId) {
       socket.to(socket.sessionId).emit('data-message', data);
@@ -201,43 +315,34 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    handlePlayerLeave(socket);
+  socket.on('disconnect', async () => {
+    await handlePlayerLeave(socket);
   });
 });
 
-function handlePlayerLeave(socket) {
+async function handlePlayerLeave(socket) {
   const sessionId = socket.sessionId;
   const playerId = socket.playerId;
-  if (!sessionId || !playerId || !rooms[sessionId]) return;
+  if (!sessionId || !playerId) return;
 
-  delete rooms[sessionId].players[playerId];
-  rooms[sessionId].peers = rooms[sessionId].peers.filter(
-    (peer) => peer.source !== socket.id && peer.target !== socket.id
-  );
-  io.to(sessionId).emit('users-updated', rooms[sessionId].players);
+  const room = await getRoom(sessionId);
+  if (!room) return;
 
-  if (Object.keys(rooms[sessionId].players).length === 0) {
-    delete rooms[sessionId];
-  } else if (socket.id === rooms[sessionId].owner) {
-    const remainingPlayers = Object.keys(rooms[sessionId].players);
-    if (remainingPlayers.length > 0) {
-      const newOwnerId = rooms[sessionId].players[remainingPlayers[0]].socketId;
-      rooms[sessionId].owner = newOwnerId;
-      rooms[sessionId].peers = rooms[sessionId].peers.map((peer) => {
-        if (peer.source === socket.id) {
-          return { source: newOwnerId, target: peer.target };
-        }
-        return peer;
-      });
-      if (rooms[sessionId].peers.length > 0) {
-        io.to(newOwnerId).emit('webrtc-signal', {
-          target: rooms[sessionId].peers[0].target,
-          requestRenegotiate: true,
-        });
-      }
-      io.to(sessionId).emit('users-updated', rooms[sessionId].players);
-    }
+  await removePlayer(sessionId, playerId);
+
+  const players = await getPlayers(sessionId);
+  const remainingIds = Object.keys(players);
+
+  io.to(sessionId).emit('users-updated', players);
+
+  if (remainingIds.length === 0) {
+    await deleteRoom(sessionId);
+  } else if (socket.id === room.owner) {
+    // Transfer ownership to first remaining player
+    const newOwnerPid = remainingIds[0];
+    const newOwnerId = players[newOwnerPid].socketId;
+    await setRoomField(sessionId, 'owner', newOwnerId);
+    io.to(sessionId).emit('users-updated', players);
   }
 
   socket.leave(sessionId);

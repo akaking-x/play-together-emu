@@ -8,6 +8,13 @@ services:
     networks:
       - psx-net
 
+  redis:
+    image: redis:7-alpine
+    container_name: psx-redis
+    restart: unless-stopped
+    networks:
+      - psx-net
+
   backend:
     build:
       context: ./backend
@@ -30,6 +37,10 @@ services:
       dockerfile: Dockerfile
     container_name: psx-netplay
     restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
     networks:
       - psx-net
 
