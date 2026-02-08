@@ -5,6 +5,7 @@ interface Props {
   gameId: string;
   onLoad: (slot: number) => void;
   onSave: (slot: number) => void;
+  onUpload?: (slot: number) => void;
 }
 
 function formatSize(bytes: number): string {
@@ -18,7 +19,7 @@ function formatDate(d: string | null): string {
   return new Date(d).toLocaleString('vi-VN');
 }
 
-export function SaveSlotGrid({ gameId, onLoad, onSave }: Props) {
+export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
   const [slots, setSlots] = useState<SaveSlotInfo[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -153,24 +154,58 @@ export function SaveSlotGrid({ gameId, onLoad, onSave }: Props) {
                 >
                   Xoa
                 </button>
+                {onUpload && (
+                  <button
+                    onClick={() => onUpload(slot.slot)}
+                    className="btn btn-sm"
+                    style={{
+                      padding: '3px 8px',
+                      fontSize: 11,
+                      background: '#ff9800',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 3,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Upload
+                  </button>
+                )}
               </div>
             </>
           ) : (
-            <button
-              onClick={() => onSave(slot.slot)}
-              style={{
-                marginTop: 'auto',
-                padding: '6px 12px',
-                background: 'transparent',
-                color: '#666',
-                border: '1px dashed #444',
-                borderRadius: 4,
-                cursor: 'pointer',
-                fontSize: 12,
-              }}
-            >
-              Save vao slot nay
-            </button>
+            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <button
+                onClick={() => onSave(slot.slot)}
+                style={{
+                  padding: '6px 12px',
+                  background: 'transparent',
+                  color: '#666',
+                  border: '1px dashed #444',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                }}
+              >
+                Save vao slot nay
+              </button>
+              {onUpload && (
+                <button
+                  onClick={() => onUpload(slot.slot)}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    color: '#ff9800',
+                    border: '1px dashed #ff9800',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    fontSize: 12,
+                  }}
+                >
+                  Upload file
+                </button>
+              )}
+            </div>
           )}
         </div>
       ))}

@@ -98,6 +98,61 @@ export function GamePage() {
     setEmulatorInstance(emu);
   }, []);
 
+  // Auto-load pending save state from RoomPage upload
+  const [saveLoadWarning, setSaveLoadWarning] = useState<string | null>(null);
+  useEffect(() => {
+    if (!emulatorInstance || !gameId) return;
+    const raw = sessionStorage.getItem('pendingSaveLoad');
+    if (!raw) return;
+    sessionStorage.removeItem('pendingSaveLoad');
+    try {
+      const pending = JSON.parse(raw) as { gameId: string; slot: number };
+      if (pending.gameId !== gameId) return;
+      saveManager.load(pending.gameId, pending.slot).then((data) => {
+        const ok = emulatorInstance.loadState(data);
+        if (!ok) {
+          setSaveLoadWarning('Save state khong hop le, game se bat dau tu dau');
+          setTimeout(() => setSaveLoadWarning(null), 5000);
+        }
+      }).catch(() => {
+        // Save not found or network error — start fresh
+      });
+    } catch {
+      // Invalid JSON — ignore
+    }
+  }, [emulatorInstance, gameId]);
+
+  // Hidden file input for upload-to-slot
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadSlotRef = useRef<number>(0);
+
+  const handleUploadToSlot = useCallback((slot: number) => {
+    uploadSlotRef.current = slot;
+    if (uploadInputRef.current) {
+      uploadInputRef.current.value = '';
+      uploadInputRef.current.click();
+    }
+  }, []);
+
+  const handleUploadFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !game || !emulatorInstance) return;
+    const slot = uploadSlotRef.current;
+    try {
+      const buffer = await file.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      await saveManager.save(game._id, slot, data, `Uploaded: ${file.name}`);
+      const ok = emulatorInstance.loadState(data);
+      if (!ok) {
+        setSaveLoadWarning('Save state khong hop le, game se bat dau tu dau');
+        setTimeout(() => setSaveLoadWarning(null), 5000);
+      }
+      setSaveRefreshKey(k => k + 1);
+    } catch {
+      alert('Loi khi upload save state');
+    }
+  }, [game, emulatorInstance]);
+
   const handleSaveToSlot = useCallback(async (slot: number) => {
     if (!game) return;
     const label = prompt('Nhan cho save state (de trong neu khong can):');
@@ -201,6 +256,29 @@ export function GamePage() {
 
   return (
     <div>
+      {/* Hidden file input for save state upload */}
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept=".state,.sav,.mcr,.srm,.ss0,.ss1,.ss2,.ss3,.ss4,.ss5,.ss6,.ss7,.ss8,.ss9"
+        onChange={handleUploadFileChange}
+        style={{ display: 'none' }}
+      />
+
+      {/* Save load warning */}
+      {saveLoadWarning && (
+        <div style={{
+          padding: '8px 16px',
+          background: '#ff9800',
+          color: '#fff',
+          borderRadius: 4,
+          marginBottom: 12,
+          fontSize: 13,
+        }}>
+          {saveLoadWarning}
+        </div>
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>{game.title}</h2>
@@ -274,6 +352,7 @@ export function GamePage() {
               gameId={game._id}
               onLoad={handleLoadFromSlot}
               onSave={handleSaveToSlot}
+              onUpload={handleUploadToSlot}
             />
           </div>
         )}

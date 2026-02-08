@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useGameStore } from '../stores/gameStore';
@@ -6,6 +6,7 @@ import { useRoom } from '../hooks/useRoom';
 import { PlayerSlot } from '../components/PlayerSlot';
 import { ChatBox } from '../components/ChatBox';
 import { prefetchROMWithProgress } from '../utils/prefetch';
+import { saveManager } from '../emulator/save-manager';
 
 export function RoomPage() {
   useParams(); // keep route param matching active
@@ -29,6 +30,30 @@ export function RoomPage() {
 
   const [romProgress, setRomProgress] = useState<number>(0);
   const [romCached, setRomCached] = useState(false);
+
+  // Save state upload
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSaveUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !room?.gameId) return;
+
+    setUploadStatus('uploading');
+    setUploadedFileName(file.name);
+    try {
+      const buffer = await file.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      await saveManager.save(room.gameId, 0, data, `Uploaded: ${file.name}`);
+      sessionStorage.setItem('pendingSaveLoad', JSON.stringify({ gameId: room.gameId, slot: 0 }));
+      setUploadStatus('done');
+    } catch {
+      setUploadStatus('error');
+    }
+    // Reset input so same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // Prefetch ROM with progress tracking
   const games = useGameStore((s) => s.games);
@@ -196,6 +221,56 @@ export function RoomPage() {
               Game da san sang
             </div>
           )}
+
+          {/* Upload save state */}
+          <div style={{
+            marginBottom: 16,
+            padding: '12px 16px',
+            background: '#1a1a2e',
+            border: '1px solid #333',
+            borderRadius: 6,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ color: '#aaa', fontSize: 13 }}>Save state:</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".state,.sav,.mcr,.srm,.ss0,.ss1,.ss2,.ss3,.ss4,.ss5,.ss6,.ss7,.ss8,.ss9"
+                onChange={handleSaveUpload}
+                style={{ display: 'none' }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadStatus === 'uploading'}
+                style={{
+                  padding: '5px 14px',
+                  background: '#ff9800',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 4,
+                  cursor: uploadStatus === 'uploading' ? 'not-allowed' : 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                {uploadStatus === 'uploading' ? 'Dang upload...' : 'Chon file save state'}
+              </button>
+              {uploadStatus === 'done' && uploadedFileName && (
+                <span style={{ color: '#4ecd6a', fontSize: 13 }}>
+                  Da upload: {uploadedFileName}
+                </span>
+              )}
+              {uploadStatus === 'error' && (
+                <span style={{ color: '#ff4444', fontSize: 13 }}>
+                  Upload that bai
+                </span>
+              )}
+            </div>
+            {uploadStatus === 'done' && (
+              <p style={{ color: '#888', fontSize: 12, margin: '6px 0 0' }}>
+                Save state se duoc tu dong load khi bat dau game.
+              </p>
+            )}
+          </div>
 
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 12 }}>
