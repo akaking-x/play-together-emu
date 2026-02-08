@@ -48,14 +48,21 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         set({ connected: true });
         // Auto-rejoin room on reconnect (both waiting and playing states)
         const state = get();
-        if (state.room) {
-          client.rejoinRoom(state.room.id);
+        const roomId = state.room?.id || sessionStorage.getItem('currentRoomId');
+        if (roomId) {
+          client.rejoinRoom(roomId);
         }
       },
       onClose: () => set({ connected: false }),
-      onRoomUpdated: (r) => set({ room: r }),
+      onRoomUpdated: (r) => {
+        set({ room: r });
+        if (r) sessionStorage.setItem('currentRoomId', r.id);
+      },
       onRoomList: (r) => set({ rooms: r }),
-      onGameStarting: (r) => set({ room: r, gameStarting: true }),
+      onGameStarting: (r) => {
+        set({ room: r, gameStarting: true });
+        if (r) sessionStorage.setItem('currentRoomId', r.id);
+      },
       onChat: (fromId, displayName, message, timestamp) => {
         set((s) => ({
           messages: [...s.messages, { fromId, displayName, message, timestamp }],
@@ -84,6 +91,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       onError: (code, msg) => {
         // If rejoin failed (room gone / not in room), clear stale room state
         if (code === 'NOT_FOUND' || code === 'NOT_IN_ROOM' || code === 'ROOM_CLOSED') {
+          sessionStorage.removeItem('currentRoomId');
           set({ room: null, gameStarting: false, gameSynced: false, loadedPlayers: [] });
         }
         set({ error: msg });
@@ -97,6 +105,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
   disconnect: () => {
     get().client?.disconnect();
+    sessionStorage.removeItem('currentRoomId');
     set({
       client: null,
       connected: false,
@@ -112,7 +121,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     });
   },
 
-  clearRoom: () => set({ room: null, messages: [], gameStarting: false, peerDisconnected: false, reconnectState: null, gameSynced: false, loadedPlayers: [] }),
+  clearRoom: () => {
+    sessionStorage.removeItem('currentRoomId');
+    set({ room: null, messages: [], gameStarting: false, peerDisconnected: false, reconnectState: null, gameSynced: false, loadedPlayers: [] });
+  },
 
   clearError: () => set({ error: null }),
 

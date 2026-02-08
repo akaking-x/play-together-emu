@@ -246,6 +246,16 @@ export class EmulatorCore {
     // Restore original getContext
     this.unpatchWebGLContext();
 
+    // Disconnect EmulatorJS netplay if active
+    try {
+      const emu = window.EJS_emulator as any;
+      if (emu?.netplay) {
+        emu.netplay.close?.();
+      }
+    } catch {
+      // Ignore netplay cleanup errors
+    }
+
     // Clean up EmulatorJS globals
     delete window.EJS_onGameStart;
     delete window.EJS_onLoadState;
@@ -256,6 +266,10 @@ export class EmulatorCore {
     delete window.EJS_gameID;
     delete window.EJS_netplayServer;
     delete window.EJS_netplayICEServers;
+
+    // Remove EmulatorJS loader script so it can be re-loaded on next game
+    const loaderScript = document.querySelector('script[src*="loader.js"]');
+    if (loaderScript) loaderScript.remove();
 
     this.instance = null;
     this.frameCount = 0;
