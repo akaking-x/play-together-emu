@@ -132,9 +132,11 @@ export function GamePage() {
 
   // Auto-connect EmulatorJS built-in netplay for multiplayer rooms
   useEffect(() => {
+    console.log('[Netplay] Effect check:', { emulatorInstance: !!emulatorInstance, isMultiplayer, room: !!room });
     if (!emulatorInstance || !isMultiplayer || !room) return;
 
     const emu = (window as any).EJS_emulator;
+    console.log('[Netplay] EJS_emulator:', !!emu, 'config:', emu?.config?.netplayUrl, 'gameId:', emu?.config?.gameId);
     if (!emu) return;
 
     const displayName = user?.displayName || user?.id?.slice(0, 8) || 'Player';
@@ -146,6 +148,8 @@ export function GamePage() {
       // Netplay menu. We programmatically initialize it with dummy UI
       // elements so auto-connect works without user interaction.
       if (!emu.netplay || !emu.netplay.openRoom) {
+        console.log('[Netplay] Initializing netplay module...');
+        console.log('[Netplay] defineNetplayFunctions available:', typeof emu.defineNetplayFunctions);
         const dummy = () => document.createElement('div');
         emu.netplay = {};
         emu.netplay.table = dummy();
@@ -157,28 +161,38 @@ export function GamePage() {
 
         if (typeof emu.defineNetplayFunctions === 'function') {
           emu.defineNetplayFunctions();
+          console.log('[Netplay] defineNetplayFunctions called, openRoom:', typeof emu.netplay?.openRoom);
+        } else {
+          console.error('[Netplay] defineNetplayFunctions not found on EJS instance');
         }
       }
 
-      if (!emu.netplay?.openRoom) return;
+      if (!emu.netplay?.openRoom) {
+        console.error('[Netplay] openRoom not available after init');
+        return;
+      }
       emu.netplay.name = displayName;
+      console.log('[Netplay] Starting as', isHost ? 'HOST' : 'GUEST', 'room:', netplayRoomName);
 
       if (isHost) {
         emu.netplay.openRoom(netplayRoomName, room.maxPlayers, '');
+        console.log('[Netplay] Host opened room');
       } else {
         // Poll for the host's room and join it
         const pollInterval = setInterval(async () => {
           try {
             const rooms = await emu.netplay.getOpenRooms();
+            console.log('[Netplay] Polling rooms:', rooms);
             for (const [sessionId, info] of Object.entries(rooms as Record<string, any>)) {
               if (info.room_name === netplayRoomName) {
                 clearInterval(pollInterval);
+                console.log('[Netplay] Guest joining room', sessionId);
                 emu.netplay.joinRoom(sessionId, netplayRoomName);
                 return;
               }
             }
-          } catch {
-            // Retry
+          } catch (err) {
+            console.error('[Netplay] Poll error:', err);
           }
         }, 1000);
 
