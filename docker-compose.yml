@@ -26,6 +26,7 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/ps1web
     volumes:
       - storage_data:/app/storage
+      - ./bios:/app/storage/bios:ro
     depends_on:
       - mongodb
     networks:

@@ -18,6 +18,7 @@ export function GamePage() {
   const navigate = useNavigate();
   const [game, setGame] = useState<Game | null>(null);
   const [romUrl, setRomUrl] = useState<string | null>(null);
+  const [biosUrl, setBiosUrl] = useState<string | undefined>(undefined);
   const [showSaves, setShowSaves] = useState(false);
   const [showKeyMapper, setShowKeyMapper] = useState(false);
   const [saveRefreshKey, setSaveRefreshKey] = useState(0);
@@ -50,6 +51,16 @@ export function GamePage() {
         const gameData = gameRes.data as Game;
         setGame(gameData);
         setRomUrl(`/api/games/${gameId}/rom`);
+
+        // Check if BIOS file exists; if not, EmulatorJS uses HLE BIOS
+        try {
+          const biosRes = await fetch('/api/games/bios/scph5501.bin', { method: 'HEAD' });
+          if (biosRes.ok) {
+            setBiosUrl('/api/games/bios/scph5501.bin');
+          }
+        } catch {
+          // No BIOS — HLE mode
+        }
 
         try {
           const keymapRes = await api.get('/keymaps');
@@ -399,7 +410,7 @@ export function GamePage() {
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
           <GameCanvas
             romUrl={romUrl}
-            biosUrl="/api/games/bios/scph5501.bin"
+            biosUrl={biosUrl}
             onEmulatorRef={handleEmulatorRef}
             netplay={netplayConfig}
           />
