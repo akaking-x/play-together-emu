@@ -22,7 +22,7 @@ export function LobbyPage() {
   const [game, setGame] = useState<Game | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [roomName, setRoomName] = useState('');
-  const [maxPlayers, setMaxPlayers] = useState(1);
+  const [maxPlayers, setMaxPlayers] = useState(2);
   const [isPrivate, setIsPrivate] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [joinRoomId, setJoinRoomId] = useState<string | null>(null);
@@ -198,7 +198,7 @@ export function LobbyPage() {
                 color: '#4ecdc4',
                 fontSize: 13,
               }}>
-                Host Streaming — Host chay emulator, guest xem stream video
+                EmulatorJS Netplay — Moi nguoi chay emulator rieng, dong bo qua mang
               </div>
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

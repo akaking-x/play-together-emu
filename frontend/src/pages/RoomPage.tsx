@@ -196,9 +196,9 @@ export function RoomPage() {
               fontSize: 13,
             }}>
               <span style={{ color: '#888' }}>Che do multiplayer: </span>
-              <span style={{ color: '#4ecdc4', fontWeight: 'bold' }}>Host Streaming</span>
+              <span style={{ color: '#4ecdc4', fontWeight: 'bold' }}>EmulatorJS Netplay</span>
               <p style={{ color: '#666', fontSize: 12, margin: '6px 0 0' }}>
-                Host chay emulator va stream video cho guest. Guest gui input qua WebRTC.
+                Moi nguoi chay emulator rieng. Dung nut Netplay trong game de ket noi.
               </p>
             </div>
           )}
