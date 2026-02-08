@@ -5,6 +5,7 @@ import { useGameStore } from '../stores/gameStore';
 import { useRoom } from '../hooks/useRoom';
 import { PlayerSlot } from '../components/PlayerSlot';
 import { ChatBox } from '../components/ChatBox';
+import { SaveSlotGrid } from '../components/SaveSlotGrid';
 import { prefetchROMWithProgress } from '../utils/prefetch';
 import { saveManager } from '../emulator/save-manager';
 
@@ -31,28 +32,38 @@ export function RoomPage() {
   const [romProgress, setRomProgress] = useState<number>(0);
   const [romCached, setRomCached] = useState(false);
 
-  // Save state upload
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle');
-  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Save state selection & upload
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [saveRefreshKey, setSaveRefreshKey] = useState(0);
+  const [showSaves, setShowSaves] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadSlotRef = useRef<number>(0);
 
-  const handleSaveUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectSlot = (slot: number) => {
+    if (!room?.gameId) return;
+    setSelectedSlot(slot);
+    sessionStorage.setItem('pendingSaveLoad', JSON.stringify({ gameId: room.gameId, slot }));
+  };
+
+  const handleUploadToSlot = (slot: number) => {
+    uploadSlotRef.current = slot;
+    uploadInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !room?.gameId) return;
-
-    setUploadStatus('uploading');
-    setUploadedFileName(file.name);
     try {
       const buffer = await file.arrayBuffer();
       const data = new Uint8Array(buffer);
-      await saveManager.save(room.gameId, 0, data, `Uploaded: ${file.name}`);
-      sessionStorage.setItem('pendingSaveLoad', JSON.stringify({ gameId: room.gameId, slot: 0 }));
-      setUploadStatus('done');
+      const slot = uploadSlotRef.current;
+      await saveManager.save(room.gameId, slot, data, `Uploaded: ${file.name}`);
+      setSaveRefreshKey((k) => k + 1);
+      handleSelectSlot(slot);
     } catch {
-      setUploadStatus('error');
+      alert('Upload that bai');
     }
-    // Reset input so same file can be re-selected
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (uploadInputRef.current) uploadInputRef.current.value = '';
   };
 
   // Prefetch ROM with progress tracking
@@ -222,55 +233,94 @@ export function RoomPage() {
             </div>
           )}
 
-          {/* Upload save state — host only */}
-          {isHost && <div style={{
+          {/* Save state selection — host only */}
+          {isHost && room?.gameId && (
+          <div style={{
             marginBottom: 16,
-            padding: '12px 16px',
             background: '#1a1a2e',
             border: '1px solid #333',
             borderRadius: 6,
+            overflow: 'hidden',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ color: '#aaa', fontSize: 13 }}>Save state:</span>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".state,.sav,.mcr,.srm,.ss0,.ss1,.ss2,.ss3,.ss4,.ss5,.ss6,.ss7,.ss8,.ss9"
-                onChange={handleSaveUpload}
-                style={{ display: 'none' }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadStatus === 'uploading'}
-                style={{
-                  padding: '5px 14px',
-                  background: '#ff9800',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 4,
-                  cursor: uploadStatus === 'uploading' ? 'not-allowed' : 'pointer',
-                  fontSize: 13,
-                }}
-              >
-                {uploadStatus === 'uploading' ? 'Dang upload...' : 'Chon file save state'}
-              </button>
-              {uploadStatus === 'done' && uploadedFileName && (
-                <span style={{ color: '#4ecd6a', fontSize: 13 }}>
-                  Da upload: {uploadedFileName}
-                </span>
-              )}
-              {uploadStatus === 'error' && (
-                <span style={{ color: '#ff4444', fontSize: 13 }}>
-                  Upload that bai
-                </span>
-              )}
-            </div>
-            {uploadStatus === 'done' && (
-              <p style={{ color: '#888', fontSize: 12, margin: '6px 0 0' }}>
-                Save state se duoc tu dong load khi bat dau game.
-              </p>
+            <button
+              onClick={() => setShowSaves((v) => !v)}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                background: 'transparent',
+                color: '#eee',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 14,
+              }}
+            >
+              <span>
+                Save state
+                {selectedSlot != null && (
+                  <span style={{ color: '#4ecdc4', marginLeft: 8, fontSize: 12 }}>
+                    Slot {selectedSlot + 1} da chon
+                  </span>
+                )}
+              </span>
+              <span style={{ color: '#888' }}>{showSaves ? '▲' : '▼'}</span>
+            </button>
+            {showSaves && (
+              <div style={{ padding: '0 16px 16px' }}>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept=".state,.sav,.mcr,.srm,.ss0,.ss1,.ss2,.ss3,.ss4,.ss5,.ss6,.ss7,.ss8,.ss9"
+                  onChange={handleFileSelected}
+                  style={{ display: 'none' }}
+                />
+                <SaveSlotGrid
+                  gameId={room.gameId}
+                  onLoad={handleSelectSlot}
+                  onUpload={handleUploadToSlot}
+                  selectedSlot={selectedSlot}
+                  loadLabel="Chon"
+                  refreshKey={saveRefreshKey}
+                />
+                {selectedSlot != null && (
+                  <div style={{
+                    marginTop: 10,
+                    padding: '6px 12px',
+                    background: '#1a2e2e',
+                    border: '1px solid #2a5a5a',
+                    borderRadius: 4,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}>
+                    <span style={{ color: '#4ecdc4', fontSize: 12 }}>
+                      Slot {selectedSlot + 1} se duoc tu dong load khi bat dau game.
+                    </span>
+                    <button
+                      onClick={() => {
+                        setSelectedSlot(null);
+                        sessionStorage.removeItem('pendingSaveLoad');
+                      }}
+                      style={{
+                        padding: '2px 8px',
+                        background: 'transparent',
+                        color: '#888',
+                        border: '1px solid #555',
+                        borderRadius: 3,
+                        cursor: 'pointer',
+                        fontSize: 11,
+                      }}
+                    >
+                      Bo chon
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
-          </div>}
+          </div>
+          )}
 
           {/* Action buttons */}
           <div style={{ display: 'flex', gap: 12 }}>

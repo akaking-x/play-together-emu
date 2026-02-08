@@ -4,8 +4,11 @@ import { saveManager, type SaveSlotInfo } from '../emulator/save-manager';
 interface Props {
   gameId: string;
   onLoad: (slot: number) => void;
-  onSave: (slot: number) => void;
+  onSave?: (slot: number) => void;
   onUpload?: (slot: number) => void;
+  selectedSlot?: number | null;
+  loadLabel?: string;
+  refreshKey?: number;
 }
 
 function formatSize(bytes: number): string {
@@ -19,7 +22,7 @@ function formatDate(d: string | null): string {
   return new Date(d).toLocaleString('vi-VN');
 }
 
-export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
+export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload, selectedSlot, loadLabel, refreshKey }: Props) {
   const [slots, setSlots] = useState<SaveSlotInfo[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,7 +39,7 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+  }, [refresh, refreshKey]);
 
   const handleDelete = async (slot: number) => {
     if (!confirm('Xoa save state nay?')) return;
@@ -66,14 +69,16 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
         gap: 12,
       }}
     >
-      {slots.map(slot => (
+      {slots.map(slot => {
+        const isSelected = selectedSlot != null && selectedSlot === slot.slot;
+        return (
         <div
           key={slot.slot}
           style={{
-            border: '1px solid #333',
+            border: isSelected ? '2px solid #4ecdc4' : '1px solid #333',
             borderRadius: 8,
             padding: 12,
-            background: slot.label !== null ? '#1a1a2e' : '#111',
+            background: isSelected ? '#1a2e2e' : slot.label !== null ? '#1a1a2e' : '#111',
             minHeight: 120,
             display: 'flex',
             flexDirection: 'column',
@@ -115,15 +120,16 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
                   style={{
                     padding: '3px 8px',
                     fontSize: 11,
-                    background: '#2a7a2a',
+                    background: isSelected ? '#4ecdc4' : '#2a7a2a',
                     color: '#fff',
                     border: 'none',
                     borderRadius: 3,
                     cursor: 'pointer',
                   }}
                 >
-                  Load
+                  {isSelected ? 'Da chon' : (loadLabel || 'Load')}
                 </button>
+                {onSave && (
                 <button
                   onClick={() => onSave(slot.slot)}
                   className="btn btn-sm"
@@ -139,6 +145,7 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
                 >
                   Save
                 </button>
+                )}
                 <button
                   onClick={() => handleDelete(slot.slot)}
                   className="btn btn-sm"
@@ -175,6 +182,7 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
             </>
           ) : (
             <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {onSave && (
               <button
                 onClick={() => onSave(slot.slot)}
                 style={{
@@ -189,6 +197,7 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
               >
                 Save vao slot nay
               </button>
+              )}
               {onUpload && (
                 <button
                   onClick={() => onUpload(slot.slot)}
@@ -208,7 +217,8 @@ export function SaveSlotGrid({ gameId, onLoad, onSave, onUpload }: Props) {
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
