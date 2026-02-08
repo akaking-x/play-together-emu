@@ -122,6 +122,51 @@ export function GamePage() {
     }
   }, [emulatorInstance, gameId]);
 
+  // Auto-connect EmulatorJS built-in netplay for multiplayer rooms
+  useEffect(() => {
+    if (!emulatorInstance || !isMultiplayer || !room) return;
+
+    const emu = (window as any).EJS_emulator;
+    if (!emu?.netplay) return;
+
+    const displayName = user?.displayName || user?.id?.slice(0, 8) || 'Player';
+    const netplayRoomName = `room-${room.id}`;
+
+    // Small delay to ensure netplay module is fully initialized
+    const timer = setTimeout(() => {
+      emu.netplay.name = displayName;
+
+      if (isHost) {
+        emu.netplay.openRoom(netplayRoomName, room.maxPlayers, '');
+      } else {
+        // Poll for the host's room and join it
+        const pollInterval = setInterval(async () => {
+          try {
+            const rooms = await emu.netplay.getOpenRooms();
+            for (const [sessionId, info] of Object.entries(rooms as Record<string, any>)) {
+              if (info.room_name === netplayRoomName) {
+                clearInterval(pollInterval);
+                emu.netplay.joinRoom(sessionId, netplayRoomName);
+                return;
+              }
+            }
+          } catch {
+            // Retry
+          }
+        }, 1000);
+
+        // Stop polling after 30s
+        const stopTimer = setTimeout(() => clearInterval(pollInterval), 30000);
+        return () => {
+          clearInterval(pollInterval);
+          clearTimeout(stopTimer);
+        };
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [emulatorInstance, isMultiplayer, room, isHost, user]);
+
   // Hidden file input for upload-to-slot
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadSlotRef = useRef<number>(0);
