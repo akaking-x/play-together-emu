@@ -164,8 +164,10 @@ app.get('/list', async (req, res) => {
 // --- Socket.IO event handlers ---
 io.on('connection', (socket) => {
   const clientIp = getClientIp(socket);
+  console.log(`[connect] socket=${socket.id} ip=${clientIp}`);
 
   socket.on('open-room', async (data, callback) => {
+    console.log(`[open-room] socket=${socket.id}`, JSON.stringify(data).substring(0, 200));
     try {
       let sessionId, playerId, roomName, gameId, maxPlayers, playerName, roomPassword;
       if (data.extra) {
