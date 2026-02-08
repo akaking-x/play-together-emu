@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { EmulatorCore, type EmulatorState } from '../emulator/core';
+import { EmulatorCore, type EmulatorState, type NetplayConfig } from '../emulator/core';
 
 interface UseEmulatorOptions {
   containerId: string;
   romUrl: string;
   biosUrl?: string;
   onFrame?: (frameNumber: number) => void;
+  netplay?: NetplayConfig;
 }
 
 interface UseEmulatorResult {
@@ -14,7 +15,7 @@ interface UseEmulatorResult {
   error: string | null;
 }
 
-export function useEmulator({ containerId, romUrl, biosUrl, onFrame }: UseEmulatorOptions): UseEmulatorResult {
+export function useEmulator({ containerId, romUrl, biosUrl, onFrame, netplay }: UseEmulatorOptions): UseEmulatorResult {
   const emulatorRef = useRef<EmulatorCore | null>(null);
   const [state, setState] = useState<EmulatorState>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +34,7 @@ export function useEmulator({ containerId, romUrl, biosUrl, onFrame }: UseEmulat
     });
     emulatorRef.current = emu;
 
-    emu.init(containerId, romUrl, biosUrl).catch((err) => {
+    emu.init(containerId, romUrl, biosUrl, netplay).catch((err) => {
       setError(err instanceof Error ? err.message : 'Emulator init failed');
     });
 

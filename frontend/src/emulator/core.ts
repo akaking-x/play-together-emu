@@ -22,7 +22,17 @@ declare global {
     EJS_onGameStart?: () => void;
     EJS_onLoadState?: () => void;
     EJS_onSaveState?: () => void;
+    // Netplay globals
+    EJS_gameID?: number;
+    EJS_netplayServer?: string;
+    EJS_netplayICEServers?: RTCIceServer[];
   }
+}
+
+export interface NetplayConfig {
+  gameId: number;
+  serverUrl: string;
+  iceServers: RTCIceServer[];
 }
 
 interface EmulatorJSInstance {
@@ -61,7 +71,7 @@ export class EmulatorCore {
     this.callbacks.onStateChange?.(newState);
   }
 
-  async init(containerId: string, romUrl: string, biosUrl?: string): Promise<void> {
+  async init(containerId: string, romUrl: string, biosUrl?: string, netplay?: NetplayConfig): Promise<void> {
     if (this.state !== 'idle') {
       throw new Error(`Cannot init in state: ${this.state}`);
     }
@@ -83,6 +93,13 @@ export class EmulatorCore {
 
       if (biosUrl) {
         window.EJS_biosUrl = biosUrl;
+      }
+
+      // Configure netplay if provided
+      if (netplay) {
+        window.EJS_gameID = netplay.gameId;
+        window.EJS_netplayServer = netplay.serverUrl;
+        window.EJS_netplayICEServers = netplay.iceServers;
       }
 
       // Set up game start callback
@@ -234,6 +251,11 @@ export class EmulatorCore {
     delete window.EJS_onLoadState;
     delete window.EJS_onSaveState;
     window.EJS_emulator = undefined;
+
+    // Clean up netplay globals
+    delete window.EJS_gameID;
+    delete window.EJS_netplayServer;
+    delete window.EJS_netplayICEServers;
 
     this.instance = null;
     this.frameCount = 0;

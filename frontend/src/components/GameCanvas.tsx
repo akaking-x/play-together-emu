@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEmulator } from '../hooks/useEmulator';
-import type { EmulatorCore } from '../emulator/core';
+import type { EmulatorCore, NetplayConfig } from '../emulator/core';
 import { DinoRunner } from './DinoRunner';
 
 interface Props {
@@ -8,15 +8,17 @@ interface Props {
   biosUrl?: string;
   onReady?: () => void;
   onEmulatorRef?: (emulator: EmulatorCore | null) => void;
+  netplay?: NetplayConfig;
 }
 
 const CONTAINER_ID = 'ejs-game-container';
 
-export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef }: Props) {
+export function GameCanvas({ romUrl, biosUrl, onReady, onEmulatorRef, netplay }: Props) {
   const { emulator, state, error } = useEmulator({
     containerId: CONTAINER_ID,
     romUrl,
     biosUrl,
+    netplay,
   });
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);

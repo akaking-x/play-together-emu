@@ -24,6 +24,15 @@ services:
     networks:
       - psx-net
 
+  netplay:
+    build:
+      context: ./netplay-server
+      dockerfile: Dockerfile
+    container_name: psx-netplay
+    restart: unless-stopped
+    networks:
+      - psx-net
+
   frontend:
     build:
       context: ./frontend
@@ -36,6 +45,7 @@ services:
       - ./emulatorjs:/usr/share/nginx/emulatorjs:ro
     depends_on:
       - backend
+      - netplay
     networks:
       - psx-net
 

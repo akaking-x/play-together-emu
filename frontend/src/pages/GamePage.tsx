@@ -1,20 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { GameCanvas } from '../components/GameCanvas';
-import { GuestVideoPlayer } from '../components/GuestVideoPlayer';
 import { SaveSlotGrid } from '../components/SaveSlotGrid';
 import { KeyMapper } from '../components/KeyMapper';
-import { ConnectionStatus } from '../components/ConnectionStatus';
 import { DinoRunner } from '../components/DinoRunner';
 import { InputMapper, DEFAULT_KEYMAP } from '../emulator/input-mapper';
 import type { EmulatorCore } from '../emulator/core';
 import { saveManager } from '../emulator/save-manager';
-import { useNetplay } from '../hooks/useNetplay';
-import { useGameLoop } from '../hooks/useGameLoop';
 import { useRoomStore } from '../stores/roomStore';
 import { useAuthStore } from '../stores/authStore';
 import { useRoom } from '../hooks/useRoom';
-import { applyCheats, removeCheats, getPlayerNumber } from '../emulator/split-screen';
 import { api } from '../api/client';
 import type { Game } from '../stores/gameStore';
 
@@ -33,52 +28,13 @@ export function GamePage() {
   const [emulatorInstance, setEmulatorInstance] = useState<EmulatorCore | null>(null);
 
   // Multiplayer state from stores
-  const { room, client, gameStarting } = useRoomStore();
-  const connected = useRoomStore((s) => s.connected);
-  const peerDisconnected = useRoomStore((s) => s.peerDisconnected);
-  const reconnectState = useRoomStore((s) => s.reconnectState);
-  const clearReconnectState = useRoomStore((s) => s.clearReconnectState);
-  const gameSynced = useRoomStore((s) => s.gameSynced);
-  const loadedPlayers = useRoomStore((s) => s.loadedPlayers);
+  const { room, gameStarting } = useRoomStore();
   const { leaveRoom } = useRoom();
   const user = useAuthStore((s) => s.user);
   const localUserId = user?.id ?? '';
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [waitingForSync, setWaitingForSync] = useState(false);
-  const sentReadyRef = useRef(false);
 
   const isMultiplayer = !!(room && room.players.length > 1 && gameStarting);
   const isHost = !!(room && room.hostId === localUserId);
-
-  // Remote video stream for guest
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const streamCapturedRef = useRef(false);
-
-  // Bridge client to a RefObject for useNetplay
-  const clientRef = useRef(client);
-  clientRef.current = client;
-
-  // WebRTC peer connections
-  const { peerInfos, sendToAll, setOnData, addStreamToAll } = useNetplay({
-    signalingClient: clientRef,
-    localUserId,
-    players: room?.players ?? [],
-    active: isMultiplayer,
-    isHost,
-    onTrack: (stream) => setRemoteStream(stream),
-  });
-
-  // 60Hz multiplayer input loop
-  useGameLoop({
-    emulator: isHost ? emulatorInstance : null,
-    inputMapper: inputMapperRef.current,
-    room,
-    localUserId,
-    isHost,
-    sendToAll,
-    setOnData,
-    active: isMultiplayer,
-  });
 
   // Leave room on unmount (safety net)
   useEffect(() => {
@@ -86,131 +42,6 @@ export function GamePage() {
       leaveRoom();
     };
   }, [leaveRoom]);
-
-  // Host: capture canvas stream and send to guests after game-synced
-  // Retry if canvas isn't available yet (EmulatorJS creates it asynchronously)
-  useEffect(() => {
-    if (!isHost || !isMultiplayer || !gameSynced || !emulatorInstance || streamCapturedRef.current) return;
-
-    const tryCapture = () => {
-      const canvas = emulatorInstance.getCanvas();
-      if (!canvas) {
-        console.log('[stream] Canvas not ready, retrying...');
-        return false;
-      }
-      streamCapturedRef.current = true;
-      console.log('[stream] Capturing canvas stream:', canvas.width, 'x', canvas.height);
-      const stream = canvas.captureStream(60);
-      console.log('[stream] Stream tracks:', stream.getVideoTracks().length, 'video,', stream.getAudioTracks().length, 'audio');
-      addStreamToAll(stream);
-      return true;
-    };
-
-    if (tryCapture()) return;
-
-    // Retry every 500ms for up to 10 seconds
-    const interval = setInterval(() => {
-      if (tryCapture()) clearInterval(interval);
-    }, 500);
-    const timeout = setTimeout(() => {
-      clearInterval(interval);
-      console.error('[stream] Canvas capture timed out after 10s');
-    }, 10000);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
-    };
-  }, [isHost, isMultiplayer, gameSynced, emulatorInstance, addStreamToAll]);
-
-  // Track if we were previously disconnected (for reconnect countdown)
-  const wasPeerDisconnectedRef = useRef(false);
-  useEffect(() => {
-    if (peerDisconnected) wasPeerDisconnectedRef.current = true;
-  }, [peerDisconnected]);
-
-  // On peer disconnect: host pauses emulator + saves state
-  useEffect(() => {
-    if (!peerDisconnected || !isMultiplayer) return;
-    if (isHost && emulatorInstance) {
-      emulatorInstance.pause();
-      const stateData = emulatorInstance.saveState();
-      if (stateData && client) {
-        const binary = Array.from(stateData, (b) => String.fromCharCode(b)).join('');
-        const base64 = btoa(binary);
-        client.sendRoomSaveState(base64);
-      }
-    }
-  }, [peerDisconnected, emulatorInstance, isMultiplayer, isHost, client]);
-
-  // On peer reconnect: 3-second countdown then resume (both host and guest see countdown)
-  useEffect(() => {
-    if (peerDisconnected || !isMultiplayer || !wasPeerDisconnectedRef.current) return;
-    wasPeerDisconnectedRef.current = false;
-    setCountdown(3);
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval);
-          if (isHost && emulatorInstance) {
-            emulatorInstance.resume();
-          }
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [peerDisconnected, isMultiplayer, isHost, emulatorInstance]);
-
-  // On receiving reconnect state (host only): load state
-  useEffect(() => {
-    if (!reconnectState || !emulatorInstance || !isHost) return;
-    const binary = atob(reconnectState);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    emulatorInstance.loadState(bytes);
-    clearReconnectState();
-  }, [reconnectState, emulatorInstance, isHost, clearReconnectState]);
-
-  // Multiplayer sync: when emulator is running, notify server and pause until all players ready
-  useEffect(() => {
-    if (!emulatorInstance || !isMultiplayer || !client || sentReadyRef.current) return;
-    if (emulatorInstance.getState() !== 'running') return;
-    sentReadyRef.current = true;
-    emulatorInstance.pause();
-    setWaitingForSync(true);
-    client.sendEmulatorReady();
-  }, [emulatorInstance, isMultiplayer, client]);
-
-  // Guest also sends emulator-ready immediately (no emulator to wait for)
-  // Must wait for WebSocket to be connected so the message isn't silently dropped
-  useEffect(() => {
-    if (!isMultiplayer || isHost || !client || sentReadyRef.current || !connected) return;
-    sentReadyRef.current = true;
-    setWaitingForSync(true);
-    client.sendEmulatorReady();
-  }, [isMultiplayer, isHost, client, connected]);
-
-  // When game-synced received: countdown then resume (host resumes emulator, guest just clears overlay)
-  useEffect(() => {
-    if (!gameSynced || !isMultiplayer) return;
-    setWaitingForSync(false);
-    setCountdown(3);
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval);
-          if (isHost && emulatorInstance) {
-            emulatorInstance.resume();
-          }
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [gameSynced, isMultiplayer, isHost, emulatorInstance]);
 
   // Fetch game info and ROM URL
   useEffect(() => {
@@ -221,16 +52,6 @@ export function GamePage() {
         const gameRes = await api.get(`/games/${gameId}`);
         const gameData = gameRes.data as Game;
         setGame(gameData);
-
-        // Apply split-screen cheats BEFORE emulator starts (host only)
-        if (isHost && gameData.splitScreenCheats && isMultiplayer && room) {
-          const localPlayer = room.players.find(p => p.userId === localUserId);
-          if (localPlayer) {
-            const playerNum = getPlayerNumber(localPlayer.controllerPort);
-            applyCheats(gameData.splitScreenCheats, playerNum);
-          }
-        }
-
         setRomUrl(`/api/games/${gameId}/rom`);
 
         try {
@@ -257,12 +78,9 @@ export function GamePage() {
     };
 
     fetchGame();
-    return () => {
-      removeCheats();
-    };
   }, [gameId]);
 
-  // Initialize input mapper (both host and guest need this)
+  // Initialize input mapper
   useEffect(() => {
     if (inputMapperRef.current) {
       inputMapperRef.current.updateKeyMap(keyMapping);
@@ -276,15 +94,6 @@ export function GamePage() {
     };
   }, [keyMapping]);
 
-  const handleEmulatorReady = useCallback(() => {
-    if (isMultiplayer && client && !sentReadyRef.current && emulatorInstance) {
-      sentReadyRef.current = true;
-      emulatorInstance.pause();
-      setWaitingForSync(true);
-      client.sendEmulatorReady();
-    }
-  }, [isMultiplayer, client, emulatorInstance]);
-
   const handleEmulatorRef = useCallback((emu: EmulatorCore | null) => {
     setEmulatorInstance(emu);
   }, []);
@@ -292,7 +101,7 @@ export function GamePage() {
   const handleSaveToSlot = useCallback(async (slot: number) => {
     if (!game) return;
     const label = prompt('Nhan cho save state (de trong neu khong can):');
-    if (label === null) return; // User pressed Cancel
+    if (label === null) return;
     try {
       const stateData = emulatorInstance?.saveState();
       if (!stateData) {
@@ -334,6 +143,14 @@ export function GamePage() {
       // Mapping still updated locally
     }
   }, []);
+
+  // Build netplay config for multiplayer games
+  // Convert last 8 hex chars of MongoDB ObjectId to a consistent numeric ID
+  const netplayConfig = isMultiplayer && gameId ? {
+    gameId: parseInt(gameId.slice(-8), 16),
+    serverUrl: window.location.origin,
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  } : undefined;
 
   if (loading) {
     return (
@@ -382,12 +199,6 @@ export function GamePage() {
     );
   }
 
-  // Determine if guest should see video or emulator
-  // If gameStarting is true and user is not the host, always show guest video
-  // (even before room data loads, to prevent EmulatorJS from loading on guest)
-  const showGuestVideo = isMultiplayer && !isHost
-    || (gameStarting && room && room.hostId !== localUserId);
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -403,22 +214,19 @@ export function GamePage() {
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {/* Save states only available for host (they have the emulator) */}
-          {(!isMultiplayer || isHost) && (
-            <button
-              onClick={() => { setShowSaves(s => !s); setShowKeyMapper(false); }}
-              style={{
-                padding: '6px 14px',
-                background: showSaves ? '#4a9eff' : '#333',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 4,
-                cursor: 'pointer',
-              }}
-            >
-              Save States
-            </button>
-          )}
+          <button
+            onClick={() => { setShowSaves(s => !s); setShowKeyMapper(false); }}
+            style={{
+              padding: '6px 14px',
+              background: showSaves ? '#4a9eff' : '#333',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+            }}
+          >
+            Save States
+          </button>
           <button
             onClick={() => { setShowKeyMapper(s => !s); setShowSaves(false); }}
             style={{
@@ -450,62 +258,12 @@ export function GamePage() {
 
       <div style={{ display: 'flex', gap: 20 }}>
         <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
-          {showGuestVideo ? (
-            <GuestVideoPlayer stream={remoteStream} />
-          ) : (
-            <GameCanvas
-              romUrl={romUrl}
-              biosUrl="/api/games/bios/scph5501.bin"
-              onReady={handleEmulatorReady}
-              onEmulatorRef={handleEmulatorRef}
-            />
-          )}
-
-          {isMultiplayer && waitingForSync && (
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(0,0,0,0.7)', zIndex: 60,
-              flexDirection: 'column', gap: 12,
-            }}>
-              <div style={{ color: '#4ecdc4', fontSize: 20 }}>
-                {isHost ? 'Doi nguoi choi khac tai game...' : 'Doi host tai game...'}
-              </div>
-              <div style={{ color: '#888', fontSize: 14 }}>
-                Da san sang: {loadedPlayers.length}/{room?.players.length ?? 0} nguoi choi
-              </div>
-            </div>
-          )}
-          {isMultiplayer && peerDisconnected && (
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(0,0,0,0.7)', zIndex: 60,
-              flexDirection: 'column', gap: 12,
-            }}>
-              <div style={{ color: '#ffa500', fontSize: 20 }}>
-                Nguoi choi da mat ket noi
-              </div>
-              <div style={{ color: '#888', fontSize: 14 }}>
-                {isHost ? 'Game da tam dung. Doi ket noi lai... (toi da 60 giay)' : 'Game da tam dung. Doi nguoi choi ket noi lai...'}
-              </div>
-            </div>
-          )}
-          {isMultiplayer && countdown !== null && (
-            <div style={{
-              position: 'absolute', inset: 0, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(0,0,0,0.6)', zIndex: 60,
-              flexDirection: 'column', gap: 12,
-            }}>
-              <div style={{ color: '#4a9eff', fontSize: 48, fontWeight: 'bold' }}>
-                {countdown}
-              </div>
-              <div style={{ color: '#ccc', fontSize: 16 }}>
-                Chuan bi tiep tuc...
-              </div>
-            </div>
-          )}
+          <GameCanvas
+            romUrl={romUrl}
+            biosUrl="/api/games/bios/scph5501.bin"
+            onEmulatorRef={handleEmulatorRef}
+            netplay={netplayConfig}
+          />
         </div>
 
         {showSaves && (
@@ -531,8 +289,6 @@ export function GamePage() {
           </div>
         )}
       </div>
-
-      {isMultiplayer && <ConnectionStatus peers={peerInfos} />}
     </div>
   );
 }
